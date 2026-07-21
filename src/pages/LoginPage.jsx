@@ -74,41 +74,9 @@ export default function LoginPage({ onLogin }) {
              </div>
              
              <form className="gb-form" onSubmit={handleLogin}>
-               <div className="gb-input-group">
-                 <input 
-                   type="text" 
-                   placeholder="Username"
-                   value={email}
-                   onChange={(e) => setEmail(e.target.value)}
-                 />
-               </div>
-               
-               <div className="gb-input-group gb-password-group">
-                 <input 
-                   type={showPassword ? 'text' : 'password'} 
-                   placeholder="Password"
-                   value={password}
-                   onChange={(e) => setPassword(e.target.value)}
-                 />
-                 <button
-                    type="button"
-                    className="password-toggle"
-                    onClick={() => setShowPassword(!showPassword)}
-                 >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                 </button>
-               </div>
-               
-               <div className="gb-form-options">
-                  <label className="gb-checkbox">
-                    <input type="checkbox" />
-                    <span>Remember me</span>
-                  </label>
-               </div>
-               
-               <button type="submit" className="gb-login-btn" disabled={isLoading}>
-                 {isLoading ? 'Connecting...' : 'Log In'}
-               </button>
+                <button type="submit" className="gb-login-btn" disabled={isLoading}>
+                   {isLoading ? 'Connecting...' : 'Access Dashboard'}
+                </button>
              </form>
            </div>
         </div>
