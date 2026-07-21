@@ -13,7 +13,8 @@ const PORT = process.env.PORT || 3002;
 const OPENSEARCH_URL = 'https://10.0.126.250:9200';
 const WAZUH_USER = process.env.WAZUH_USER;
 const WAZUH_PASSWORD = process.env.WAZUH_PASSWORD;
-const LLAMA_API_URL = process.env.LLAMA_API_URL || 'http://localhost:11434/api/generate';
+// Force 127.0.0.1 instead of localhost to bypass Node's IPv6 resolution bug!
+const LLAMA_API_URL = process.env.LLAMA_API_URL || 'http://127.0.0.1:11434/api/generate';
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
@@ -27,7 +28,7 @@ async function askLlama(prompt, systemInstruction) {
       prompt: prompt,
       system: systemInstruction,
       stream: false
-    }, { timeout: 10000 });
+    }, { timeout: 30000 }); // Give Llama up to 30s to think, but 127.0.0.1 fixes the connection error
     return response.data.response.trim();
   } catch (error) {
     console.warn("Llama 3 Unreachable. Falling back to rule-based logic.");

@@ -52,26 +52,7 @@ export default function ChatPage({ onLogout }) {
     }
   }, [input]);
 
-  // Simulate Live Mode pushing random alerts
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (Math.random() > 0.85) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            type: 'data_card',
-            source: 'wazuh-live-feed',
-            rows: [
-              { severity: 'low', label: 'Successful SSH login', meta: 'db-srv-01 · Just now' }
-            ],
-            footer: 'Live event triggered'
-          }
-        ]);
-      }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, []);
+
 
   async function getBackendReply(text) {
     try {
