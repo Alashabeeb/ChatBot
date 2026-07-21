@@ -9,17 +9,16 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3002;
-// Use port 9200 for OpenSearch instead of the blocked Wazuh API
 const OPENSEARCH_URL = 'https://10.0.126.250:9200';
 const WAZUH_USER = process.env.WAZUH_USER;
 const WAZUH_PASSWORD = process.env.WAZUH_PASSWORD;
-// Force 127.0.0.1 instead of localhost to bypass Node's IPv6 resolution bug!
-const LLAMA_API_URL = process.env.LLAMA_API_URL || 'http://127.0.0.1:11434/api/generate';
+// Force 127.0.0.1 to bypass Node's IPv6 resolution bug and ignore old .env settings
+const LLAMA_API_URL = 'http://127.0.0.1:11434/api/generate';
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 /**
- * 1. Ask Llama 3 (Graceful Fallback if Llama is down)
+ * Single Llama 3 Call for Summarization (120s timeout for CPU)
  */
 async function askLlama(prompt, systemInstruction) {
   try {
@@ -28,7 +27,7 @@ async function askLlama(prompt, systemInstruction) {
       prompt: prompt,
       system: systemInstruction,
       stream: false
-    }, { timeout: 30000 }); // Give Llama up to 30s to think, but 127.0.0.1 fixes the connection error
+    }, { timeout: 120000 }); 
     return response.data.response.trim();
   } catch (error) {
     console.warn("Llama 3 Unreachable. Falling back to rule-based logic.");
@@ -37,7 +36,7 @@ async function askLlama(prompt, systemInstruction) {
 }
 
 /**
- * Handle chat queries using OpenSearch (Wazuh Indexer)
+ * Handle chat queries efficiently
  */
 app.post('/api/chat', async (req, res) => {
   const { text, sources } = req.body;
@@ -50,92 +49,97 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    const lowerText = text.toLowerCase();
+    const lowerText = text.toLowerCase().trim();
     
-    // Step 1: Intelligent Intent Classification
-    const classificationPrompt = `User asked: "${text}". Which Wazuh log category should I query? Reply with exactly one word: [brute_force, vulnerabilities, alerts, unknown].`;
-    let intent = await askLlama(classificationPrompt, "You are a classifier.");
-    
-    // Fallback if Llama 3 is down or returns junk
-    if (!intent || intent.length > 20) {
-      if (lowerText.includes('brute') || lowerText.includes('fail') || lowerText.includes('login')) intent = 'brute_force';
-      else if (lowerText.includes('vulnerab') || lowerText.includes('cve')) intent = 'vulnerabilities';
-      else intent = 'alerts'; // Default to generic alerts
+    // ==========================================
+    // ZERO-LATENCY CONVERSATIONAL FAST-PATH
+    // ==========================================
+    const greetings = ['hi', 'hello', 'hey', 'help', 'who are you', 'what can you do', 'good morning', 'good afternoon'];
+    // If the text is exactly a greeting or starts with a greeting and is very short
+    if (greetings.includes(lowerText) || (greetings.some(g => lowerText.startsWith(g)) && lowerText.length < 15)) {
+      return res.json({
+        type: 'text',
+        text: 'Hello! I am your AI SOC Assistant. I am directly connected to the Wazuh SIEM Indexer. You can ask me to "check this IP 190.03.12.56", "find brute force attacks", or "show recent vulnerabilities".'
+      });
     }
-    intent = intent.toLowerCase();
 
-    // Step 2: Build OpenSearch Query DSL
-    // We use a query_string so if the user types an IP address, OpenSearch finds it!
+    // ==========================================
+    // INSTANT INTENT & ENTITY EXTRACTION (NO LLAMA DELAY)
+    // ==========================================
+    let intent = 'alerts'; // Default
+    if (lowerText.includes('brute') || lowerText.includes('fail') || lowerText.includes('login')) intent = 'brute_force';
+    else if (lowerText.includes('vulnerab') || lowerText.includes('cve')) intent = 'vulnerabilities';
+
+    // Extract IPv4 addresses
+    const ipRegex = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
+    const extractedIPs = text.match(ipRegex) || [];
+
+    // ==========================================
+    // BUILD HIGHLY ACCURATE OPENSEARCH QUERY
+    // ==========================================
     let esQuery = {
-      query: { 
-        query_string: { 
-          query: text, 
-          default_operator: "AND" 
-        } 
-      },
+      query: { bool: { must: [] } },
       sort: [{ "@timestamp": { order: "desc" } }],
-      size: 15
+      size: 10 // Reduced to 10 so CPU Llama doesn't get overwhelmed with too much JSON
     };
 
-    // Add specific filters if it's a known intent, but preserve the text search
-    if (intent.includes('brute')) {
-      esQuery.query = {
-        bool: {
-          must: [
-            { match: { "rule.groups": "authentication_failures" } },
-            { query_string: { query: text } }
-          ]
-        }
-      };
-    } else if (intent.includes('vulnerab')) {
-      esQuery.query = {
-        bool: {
-          must: [
-            { match: { "rule.groups": "vulnerability-detector" } },
-            { query_string: { query: text } }
-          ]
-        }
-      };
+    // If an IP was found, force OpenSearch to only return logs containing this IP!
+    if (extractedIPs.length > 0) {
+      esQuery.query.bool.must.push({ query_string: { query: extractedIPs[0] } });
+    } else {
+      // If no IP, just search their whole sentence text
+      esQuery.query.bool.must.push({ query_string: { query: text, default_operator: "OR" } });
     }
 
-    // Step 3: Fetch REAL data from OpenSearch (Wazuh Indexer)
+    // Add specific SIEM filters
+    if (intent === 'brute_force') {
+      esQuery.query.bool.must.push({ match: { "rule.groups": "authentication_failures" } });
+    } else if (intent === 'vulnerabilities') {
+      esQuery.query.bool.must.push({ match: { "rule.groups": "vulnerability-detector" } });
+    }
+
+    // ==========================================
+    // FETCH REAL DATA
+    // ==========================================
     const authString = Buffer.from(`${WAZUH_USER}:${WAZUH_PASSWORD}`).toString('base64');
     const osResponse = await axios.post(`${OPENSEARCH_URL}/wazuh-alerts-*/_search`, esQuery, {
-      headers: { 
-        Authorization: `Basic ${authString}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { Authorization: `Basic ${authString}`, 'Content-Type': 'application/json' },
       httpsAgent
     });
     
-    // Extract the raw source documents from the OpenSearch hits
     const rawData = osResponse.data.hits.hits.map(hit => hit._source);
-    const sourceLabel = `wazuh-indexer /wazuh-alerts-* (${intent})`;
+    let sourceLabel = `wazuh-indexer /wazuh-alerts-*`;
+    if (extractedIPs.length > 0) sourceLabel += ` (Target: ${extractedIPs[0]})`;
 
-    // Step 4: Summarize the data (Llama or Fallback)
+    // ==========================================
+    // SINGLE LLAMA 3 SUMMARIZATION
+    // ==========================================
     let summary = '';
-    const summaryPrompt = `User asked: "${text}". Here is the raw SIEM JSON data from OpenSearch: ${JSON.stringify(rawData).substring(0, 1500)}. Write a concise, 2-sentence summary answering the user. Do not say "based on the JSON".`;
     
-    const llamaSummary = await askLlama(summaryPrompt, "You are a senior SOC analyst. Summarize security data clearly.");
-    
-    if (llamaSummary) {
-      summary = llamaSummary;
+    if (rawData.length === 0) {
+      // Fast path if nothing was found! No need to ask Llama.
+      summary = extractedIPs.length > 0 
+        ? `I scanned the SIEM logs, but I did not find any alerts related to the IP address ${extractedIPs[0]}.` 
+        : `I could not find any alerts matching your request in the SIEM database.`;
     } else {
-      // Hardcoded fallback summary if Llama isn't running
-      if (rawData.length === 0) {
-        summary = `No recent ${intent} alerts found in the Wazuh Indexer.`;
+      // Only invoke the heavy CPU if we actually have logs to summarize
+      const summaryPrompt = `User asked: "${text}". SIEM JSON logs found: ${JSON.stringify(rawData).substring(0, 1500)}. Write a clear, 2-sentence summary answering the user directly. Do not say "based on the JSON".`;
+      const llamaSummary = await askLlama(summaryPrompt, "You are a senior SOC analyst. Summarize security logs clearly.");
+      
+      if (llamaSummary) {
+        summary = llamaSummary;
       } else {
-        summary = `Successfully retrieved ${rawData.length} recent ${intent} alerts from the Wazuh Indexer. Click "View Full Details" to see the raw JSON logs.`;
+        // CPU fallback
+        summary = `Successfully retrieved ${rawData.length} alerts from the Wazuh Indexer matching your query. Click "View Full Details" to see the raw JSON logs.`;
       }
     }
 
-    // Step 5: Return Summary + REAL Raw Data to React UI
     return res.json({
       type: 'agent_response',
       source: sourceLabel,
       summary: summary,
       raw_logs: rawData,
-      footer: llamaSummary ? 'Analyzed by Llama 3 (via OpenSearch)' : 'Retrieved via OpenSearch (Llama 3 offline)'
+      footer: summary.includes('SIEM logs found') || rawData.length === 0 ? 'Processed Instantly' : 'Analyzed by Llama 3'
     });
 
   } catch (error) {
