@@ -71,49 +71,30 @@ export default function ChatPage({ onLogout }) {
   }, []);
 
   async function getBackendReply(text) {
-    await new Promise((res) => setTimeout(res, 800));
+    try {
+      // Point to our new Node.js Proxy Server
+      const API_URL = window.location.hostname === 'localhost' 
+        ? 'http://localhost:3001/api/chat' 
+        : `http://${window.location.hostname}:3001/api/chat`;
 
-    if (/stats/i.test(text) || /chart/i.test(text) || /trend/i.test(text)) {
-      return { type: 'chart', data: mockChartData };
-    }
-    if (/alert/i.test(text)) {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Network error or server is down');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error("Backend Error:", error);
       return {
-        type: 'data_card',
-        source: 'wazuh-alerts-index',
-        rows: [
-          { severity: 'high', label: 'Multiple authentication failures', meta: 'web-srv-02 · 2m ago', action: 'Block IP' },
-          { severity: 'mid', label: 'File integrity change detected', meta: 'db-srv-01 · 14m ago', action: 'Diff' },
-          { severity: 'low', label: 'New agent connected', meta: 'app-srv-04 · 41m ago' },
-        ],
-        footer: '3 of 128 alerts shown · last 24h',
+        type: 'text',
+        text: '⚠️ Cannot connect to the Wazuh Proxy Backend. Make sure the Node.js server is running on port 3001.'
       };
     }
-    if (/agent/i.test(text)) {
-      return {
-        type: 'data_card',
-        source: 'wazuh-manager /agents',
-        rows: [
-          { severity: 'high', label: 'app-srv-04 disconnected', meta: 'last seen 3h ago', action: 'Restart' },
-          { severity: 'ok', label: '11 agents active', meta: 'healthy' },
-        ],
-        footer: 'agent status snapshot',
-      };
-    }
-    if (/vulnerab/i.test(text)) {
-      return {
-        type: 'data_card',
-        source: 'wazuh-manager /vulnerability',
-        rows: [
-          { severity: 'high', label: 'CVE-2024-3094 — xz-utils', meta: 'db-srv-01', action: 'Patch' },
-          { severity: 'mid', label: 'CVE-2023-4911 — glibc', meta: 'web-srv-02', action: 'Patch' },
-        ],
-        footer: '2 critical/high findings',
-      };
-    }
-    return {
-      type: 'text',
-      text: "I can pull data from Wazuh. Try asking about alerts, agents, vulnerabilities, or type '/stats' for charts.",
-    };
   }
 
   async function handleSend(overrideText) {
