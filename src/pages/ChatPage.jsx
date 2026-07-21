@@ -75,10 +75,10 @@ export default function ChatPage({ onLogout }) {
 
   async function getBackendReply(text) {
     try {
-      // Point to our new Node.js Proxy Server
+      // Point to our new Node.js Proxy Server (Port changed to 3002 to avoid conflicts)
       const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:3001/api/chat' 
-        : `http://${window.location.hostname}:3001/api/chat`;
+        ? 'http://localhost:3002/api/chat' 
+        : `http://${window.location.hostname}:3002/api/chat`;
 
       const response = await fetch(API_URL, {
         method: 'POST',
