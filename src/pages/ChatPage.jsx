@@ -86,16 +86,20 @@ export default function ChatPage({ onLogout }) {
         body: JSON.stringify({ text, sources: selectedSources })
       });
       
+      const data = await response.json();
+      
       if (!response.ok) {
+        // If the backend sent a graceful 500 error, return it so the chat UI shows it
+        if (data.type === 'text') return data;
         throw new Error('Network error or server is down');
       }
       
-      return await response.json();
+      return data;
     } catch (error) {
       console.error("Backend Error:", error);
       return {
         type: 'text',
-        text: '⚠️ Cannot connect to the Wazuh Proxy Backend. Make sure the Node.js server is running on port 3001.'
+        text: `⚠️ Connection Error: ${error.message}`
       };
     }
   }

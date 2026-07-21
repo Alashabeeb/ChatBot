@@ -8,8 +8,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 3001;
-const WAZUH_API_URL = process.env.WAZUH_API_URL || 'https://10.0.126.250:55000';
+const PORT = process.env.PORT || 3002;
+// Use port 9200 for OpenSearch instead of the blocked Wazuh API
+const OPENSEARCH_URL = 'https://10.0.126.250:9200';
 const WAZUH_USER = process.env.WAZUH_USER;
 const WAZUH_PASSWORD = process.env.WAZUH_PASSWORD;
 const LLAMA_API_URL = process.env.LLAMA_API_URL || 'http://localhost:11434/api/generate';
@@ -17,19 +18,7 @@ const LLAMA_API_URL = process.env.LLAMA_API_URL || 'http://localhost:11434/api/g
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 /**
- * 1. Get JWT from Wazuh
- */
-async function getWazuhToken() {
-  const authString = Buffer.from(`${WAZUH_USER}:${WAZUH_PASSWORD}`).toString('base64');
-  const response = await axios.get(`${WAZUH_API_URL}/security/user/authenticate`, {
-    headers: { Authorization: `Basic ${authString}` },
-    httpsAgent
-  });
-  return response.data.data.token;
-}
-
-/**
- * 2. Ask Llama 3 (Graceful Fallback if Llama is down)
+ * 1. Ask Llama 3 (Graceful Fallback if Llama is down)
  */
 async function askLlama(prompt, systemInstruction) {
   try {
@@ -38,16 +27,16 @@ async function askLlama(prompt, systemInstruction) {
       prompt: prompt,
       system: systemInstruction,
       stream: false
-    }, { timeout: 10000 }); // 10 second timeout
+    }, { timeout: 10000 });
     return response.data.response.trim();
   } catch (error) {
     console.warn("Llama 3 Unreachable. Falling back to rule-based logic.");
-    return null; // Return null so we can fallback
+    return null;
   }
 }
 
 /**
- * Handle chat queries using Llama 3 AND Rule-Based Fallbacks for 100% Real Data
+ * Handle chat queries using OpenSearch (Wazuh Indexer)
  */
 app.post('/api/chat', async (req, res) => {
   const { text, sources } = req.body;
@@ -62,81 +51,89 @@ app.post('/api/chat', async (req, res) => {
 
     const lowerText = text.toLowerCase();
     
-    // Step 1: Intelligent Intent Classification (with Regex Fallback)
-    const classificationPrompt = `User asked: "${text}". Which Wazuh endpoint should I query? Reply with exactly one word: [agents, vulnerabilities, manager, unknown].`;
+    // Step 1: Intelligent Intent Classification
+    const classificationPrompt = `User asked: "${text}". Which Wazuh log category should I query? Reply with exactly one word: [brute_force, vulnerabilities, alerts, unknown].`;
     let intent = await askLlama(classificationPrompt, "You are a classifier.");
     
     // Fallback if Llama 3 is down or returns junk
     if (!intent || intent.length > 20) {
-      if (lowerText.includes('agent')) intent = 'agents';
+      if (lowerText.includes('brute') || lowerText.includes('fail') || lowerText.includes('login')) intent = 'brute_force';
       else if (lowerText.includes('vulnerab') || lowerText.includes('cve')) intent = 'vulnerabilities';
-      else intent = 'manager'; // Default to manager status
+      else intent = 'alerts'; // Default to generic alerts
     }
     intent = intent.toLowerCase();
 
-    // Step 2: Fetch REAL data from Wazuh (No Mock Data)
-    const token = await getWazuhToken();
-    const config = { headers: { Authorization: `Bearer ${token}` }, httpsAgent };
+    // Step 2: Build OpenSearch Query DSL
+    let esQuery = {
+      query: { match_all: {} },
+      sort: [{ "@timestamp": { order: "desc" } }],
+      size: 15
+    };
+
+    if (intent.includes('brute')) {
+      esQuery = {
+        query: { match: { "rule.groups": "authentication_failures" } },
+        sort: [{ "@timestamp": { order: "desc" } }],
+        size: 15
+      };
+    } else if (intent.includes('vulnerab')) {
+      esQuery = {
+        query: { match: { "rule.groups": "vulnerability-detector" } },
+        sort: [{ "@timestamp": { order: "desc" } }],
+        size: 15
+      };
+    }
+
+    // Step 3: Fetch REAL data from OpenSearch (Wazuh Indexer)
+    const authString = Buffer.from(`${WAZUH_USER}:${WAZUH_PASSWORD}`).toString('base64');
+    const osResponse = await axios.post(`${OPENSEARCH_URL}/wazuh-alerts-*/_search`, esQuery, {
+      headers: { 
+        Authorization: `Basic ${authString}`,
+        'Content-Type': 'application/json'
+      },
+      httpsAgent
+    });
     
-    let rawData = [];
-    let sourceLabel = '';
+    // Extract the raw source documents from the OpenSearch hits
+    const rawData = osResponse.data.hits.hits.map(hit => hit._source);
+    const sourceLabel = `wazuh-indexer /wazuh-alerts-* (${intent})`;
 
-    if (intent.includes('agent')) {
-      const resp = await axios.get(`${WAZUH_API_URL}/agents?limit=20`, config);
-      rawData = resp.data.data.affected_items;
-      sourceLabel = 'wazuh-api /agents';
-    } 
-    else if (intent.includes('vulnerab')) {
-      // Query vulnerabilities for Agent 000 (Manager)
-      const resp = await axios.get(`${WAZUH_API_URL}/vulnerability/agents/000?limit=20`, config);
-      rawData = resp.data.data.affected_items || [];
-      sourceLabel = 'wazuh-api /vulnerability/agents/000';
-    }
-    else {
-      // Default fallback: Manager Status
-      const resp = await axios.get(`${WAZUH_API_URL}/manager/status`, config);
-      rawData = resp.data.data;
-      sourceLabel = 'wazuh-api /manager/status';
-    }
-
-    // Step 3: Summarize the data (Llama or Fallback)
+    // Step 4: Summarize the data (Llama or Fallback)
     let summary = '';
-    const summaryPrompt = `User asked: "${text}". Here is the real JSON data from Wazuh: ${JSON.stringify(rawData).substring(0, 1500)}. Write a concise, 2-sentence summary answering the user. Do not say "based on the JSON".`;
+    const summaryPrompt = `User asked: "${text}". Here is the raw SIEM JSON data from OpenSearch: ${JSON.stringify(rawData).substring(0, 1500)}. Write a concise, 2-sentence summary answering the user. Do not say "based on the JSON".`;
     
     const llamaSummary = await askLlama(summaryPrompt, "You are a senior SOC analyst. Summarize security data clearly.");
     
     if (llamaSummary) {
       summary = llamaSummary;
     } else {
-      // Hardcoded fallback summary if Llama isn't running on localhost
-      if (intent.includes('agent')) {
-        summary = `Successfully retrieved data for ${rawData.length} agents from Wazuh. Click "View Full Details" to see the active status and OS versions for each agent.`;
-      } else if (intent.includes('vulnerab')) {
-        summary = `Found ${rawData.length} vulnerabilities on the manager. Please review the raw logs below to see CVE severities and patching recommendations.`;
+      // Hardcoded fallback summary if Llama isn't running
+      if (rawData.length === 0) {
+        summary = `No recent ${intent} alerts found in the Wazuh Indexer.`;
       } else {
-        summary = `Manager status successfully retrieved. The core Wazuh services are running. See raw logs for specific daemon states.`;
+        summary = `Successfully retrieved ${rawData.length} recent ${intent} alerts from the Wazuh Indexer. Click "View Full Details" to see the raw JSON logs.`;
       }
     }
 
-    // Step 4: Return Summary + REAL Raw Data to React UI
+    // Step 5: Return Summary + REAL Raw Data to React UI
     return res.json({
       type: 'agent_response',
       source: sourceLabel,
       summary: summary,
       raw_logs: rawData,
-      footer: llamaSummary ? 'Generated by Llama 3' : 'Generated by Rule-Engine (Llama 3 offline)'
+      footer: llamaSummary ? 'Analyzed by Llama 3 (via OpenSearch)' : 'Retrieved via OpenSearch (Llama 3 offline)'
     });
 
   } catch (error) {
     console.error('API Error:', error.message);
     res.status(500).json({
       type: 'text',
-      text: `⚠️ Wazuh Connection Error: ${error.message}. Please ensure the Wazuh API is reachable from this server.`
+      text: `⚠️ Wazuh Indexer Connection Error: ${error.message}. Please ensure port 9200 is reachable.`
     });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 AI SOC Proxy Server running on port ${PORT}`);
-  console.log(`Wazuh URL: ${WAZUH_API_URL}`);
+  console.log(`OpenSearch URL: ${OPENSEARCH_URL}`);
 });
