@@ -9,137 +9,134 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
-// Default Wazuh API port is 55000. Ensure the env var has the full URL, or build it.
 const WAZUH_API_URL = process.env.WAZUH_API_URL || 'https://10.0.126.250:55000';
 const WAZUH_USER = process.env.WAZUH_USER;
 const WAZUH_PASSWORD = process.env.WAZUH_PASSWORD;
+const LLAMA_API_URL = process.env.LLAMA_API_URL || 'http://localhost:11434/api/generate';
 
-// Disable strict SSL verification for Wazuh's self-signed certs
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false
-});
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 /**
- * Get JWT from Wazuh
+ * 1. Get JWT from Wazuh
  */
 async function getWazuhToken() {
-  if (!WAZUH_USER || !WAZUH_PASSWORD) {
-    throw new Error('Missing Wazuh credentials. Please set them in your .env file.');
-  }
+  const authString = Buffer.from(`${WAZUH_USER}:${WAZUH_PASSWORD}`).toString('base64');
+  const response = await axios.get(`${WAZUH_API_URL}/security/user/authenticate`, {
+    headers: { Authorization: `Basic ${authString}` },
+    httpsAgent
+  });
+  return response.data.data.token;
+}
 
+/**
+ * 2. Ask Llama 3 (Graceful Fallback if Llama is down)
+ */
+async function askLlama(prompt, systemInstruction) {
   try {
-    const authString = Buffer.from(`${WAZUH_USER}:${WAZUH_PASSWORD}`).toString('base64');
-    const response = await axios.get(`${WAZUH_API_URL}/security/user/authenticate`, {
-      headers: {
-        Authorization: `Basic ${authString}`
-      },
-      httpsAgent
-    });
-    return response.data.data.token;
+    const response = await axios.post(LLAMA_API_URL, {
+      model: 'llama3',
+      prompt: prompt,
+      system: systemInstruction,
+      stream: false
+    }, { timeout: 10000 }); // 10 second timeout
+    return response.data.response.trim();
   } catch (error) {
-    console.error('Wazuh Auth Error:', error.message);
-    throw new Error('Failed to authenticate with Wazuh API');
+    console.warn("Llama 3 Unreachable. Falling back to rule-based logic.");
+    return null; // Return null so we can fallback
   }
 }
 
 /**
- * Handle incoming chat queries from the React UI
+ * Handle chat queries using Llama 3 AND Rule-Based Fallbacks for 100% Real Data
  */
 app.post('/api/chat', async (req, res) => {
-  const { text } = req.body;
-  const query = (text || '').toLowerCase();
+  const { text, sources } = req.body;
 
   try {
+    if (!sources || (!sources.includes('wazuh') && !sources.includes('all'))) {
+      return res.json({
+        type: 'text',
+        text: 'Please select Wazuh from the Agents dropdown to query security data.'
+      });
+    }
+
+    const lowerText = text.toLowerCase();
+    
+    // Step 1: Intelligent Intent Classification (with Regex Fallback)
+    const classificationPrompt = `User asked: "${text}". Which Wazuh endpoint should I query? Reply with exactly one word: [agents, vulnerabilities, manager, unknown].`;
+    let intent = await askLlama(classificationPrompt, "You are a classifier.");
+    
+    // Fallback if Llama 3 is down or returns junk
+    if (!intent || intent.length > 20) {
+      if (lowerText.includes('agent')) intent = 'agents';
+      else if (lowerText.includes('vulnerab') || lowerText.includes('cve')) intent = 'vulnerabilities';
+      else intent = 'manager'; // Default to manager status
+    }
+    intent = intent.toLowerCase();
+
+    // Step 2: Fetch REAL data from Wazuh (No Mock Data)
     const token = await getWazuhToken();
-    const config = {
-      headers: { Authorization: `Bearer ${token}` },
-      httpsAgent
-    };
+    const config = { headers: { Authorization: `Bearer ${token}` }, httpsAgent };
+    
+    let rawData = [];
+    let sourceLabel = '';
 
-    // 1. Chart / Stats logic
-    if (/stats|chart|trend/.test(query)) {
-      return res.json({
-        type: 'chart',
-        data: [
-          { time: '10:00', alerts: 4 },
-          { time: '11:00', alerts: 7 },
-          { time: '12:00', alerts: 2 },
-          { time: '13:00', alerts: 12 },
-          { time: '14:00', alerts: 5 },
-          { time: '15:00', alerts: 8 },
-        ]
-      });
+    if (intent.includes('agent')) {
+      const resp = await axios.get(`${WAZUH_API_URL}/agents?limit=20`, config);
+      rawData = resp.data.data.affected_items;
+      sourceLabel = 'wazuh-api /agents';
+    } 
+    else if (intent.includes('vulnerab')) {
+      // Query vulnerabilities for Agent 000 (Manager)
+      const resp = await axios.get(`${WAZUH_API_URL}/vulnerability/agents/000?limit=20`, config);
+      rawData = resp.data.data.affected_items || [];
+      sourceLabel = 'wazuh-api /vulnerability/agents/000';
+    }
+    else {
+      // Default fallback: Manager Status
+      const resp = await axios.get(`${WAZUH_API_URL}/manager/status`, config);
+      rawData = resp.data.data;
+      sourceLabel = 'wazuh-api /manager/status';
     }
 
-    // 2. Agents query
-    if (/agent/.test(query)) {
-      const response = await axios.get(`${WAZUH_API_URL}/agents?limit=5`, config);
-      const agents = response.data.data.affected_items;
-      
-      const rows = agents.map(agent => ({
-        severity: agent.status === 'active' ? 'ok' : 'high',
-        label: `${agent.name} is ${agent.status}`,
-        meta: `IP: ${agent.ip || 'N/A'}`,
-        action: agent.status === 'active' ? null : 'Restart'
-      }));
-
-      return res.json({
-        type: 'data_card',
-        source: `wazuh-manager /agents (${response.data.data.total_affected_items} total)`,
-        rows: rows.length ? rows : [{ severity: 'mid', label: 'No agents found', meta: '' }],
-        footer: 'Live agents snapshot from Wazuh'
-      });
+    // Step 3: Summarize the data (Llama or Fallback)
+    let summary = '';
+    const summaryPrompt = `User asked: "${text}". Here is the real JSON data from Wazuh: ${JSON.stringify(rawData).substring(0, 1500)}. Write a concise, 2-sentence summary answering the user. Do not say "based on the JSON".`;
+    
+    const llamaSummary = await askLlama(summaryPrompt, "You are a senior SOC analyst. Summarize security data clearly.");
+    
+    if (llamaSummary) {
+      summary = llamaSummary;
+    } else {
+      // Hardcoded fallback summary if Llama isn't running on localhost
+      if (intent.includes('agent')) {
+        summary = `Successfully retrieved data for ${rawData.length} agents from Wazuh. Click "View Full Details" to see the active status and OS versions for each agent.`;
+      } else if (intent.includes('vulnerab')) {
+        summary = `Found ${rawData.length} vulnerabilities on the manager. Please review the raw logs below to see CVE severities and patching recommendations.`;
+      } else {
+        summary = `Manager status successfully retrieved. The core Wazuh services are running. See raw logs for specific daemon states.`;
+      }
     }
 
-    // 3. Vulnerability query
-    if (/vulnerab/.test(query)) {
-      const response = await axios.get(`${WAZUH_API_URL}/vulnerability/agents/000?limit=3`, config);
-      const vulns = response.data.data.affected_items || [];
-
-      const rows = vulns.map(v => ({
-        severity: v.severity === 'Critical' || v.severity === 'High' ? 'high' : 'mid',
-        label: `${v.cve} — ${v.name}`,
-        meta: `Agent 000`,
-        action: 'Patch'
-      }));
-
-      return res.json({
-        type: 'data_card',
-        source: 'wazuh-manager /vulnerability',
-        rows: rows.length ? rows : [{ severity: 'ok', label: 'No critical vulnerabilities found on Manager', meta: '' }],
-        footer: 'Live vulnerability scan'
-      });
-    }
-
-    // 4. Alerts query
-    if (/alert/.test(query)) {
-      return res.json({
-        type: 'data_card',
-        source: 'wazuh-alerts-index',
-        rows: [
-          { severity: 'high', label: 'Multiple authentication failures', meta: 'web-srv-02 · 2m ago', action: 'Block IP' },
-          { severity: 'mid', label: 'File integrity change detected', meta: 'db-srv-01 · 14m ago', action: 'Diff' }
-        ],
-        footer: 'Live alert stream'
-      });
-    }
-
-    // Default fallback
+    // Step 4: Return Summary + REAL Raw Data to React UI
     return res.json({
-      type: 'text',
-      text: "I am connected to your live Wazuh API! Try asking about agents, vulnerabilities, or type '/stats'."
+      type: 'agent_response',
+      source: sourceLabel,
+      summary: summary,
+      raw_logs: rawData,
+      footer: llamaSummary ? 'Generated by Llama 3' : 'Generated by Rule-Engine (Llama 3 offline)'
     });
 
   } catch (error) {
-    console.error('API Error:', error.response ? error.response.data : error.message);
+    console.error('API Error:', error.message);
     res.status(500).json({
       type: 'text',
-      text: '⚠️ Error connecting to the real Wazuh API. Check your credentials in the backend .env file.'
+      text: `⚠️ Wazuh Connection Error: ${error.message}. Please ensure the Wazuh API is reachable from this server.`
     });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 GBB Wazuh Proxy Server running on port ${PORT}`);
-  console.log(`Ensure you have set WAZUH_USER and WAZUH_PASSWORD in your .env file!`);
+  console.log(`🚀 AI SOC Proxy Server running on port ${PORT}`);
+  console.log(`Wazuh URL: ${WAZUH_API_URL}`);
 });

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ChatMessage, { TypingDots } from '../components/ChatMessage';
 import DataCard from '../components/DataCard';
@@ -31,6 +31,9 @@ export default function ChatPage({ onLogout }) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedSources, setSelectedSources] = useState(['wazuh']);
+  const [modalData, setModalData] = useState(null);
+  const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -80,7 +83,7 @@ export default function ChatPage({ onLogout }) {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text, sources: selectedSources })
       });
       
       if (!response.ok) {
@@ -190,6 +193,20 @@ export default function ChatPage({ onLogout }) {
                 {m.type === 'chart' && (
                   <ChartCard data={m.data} title="Alert Volume Trends" />
                 )}
+                {m.type === 'agent_response' && (
+                  <div className="agent-response-card">
+                    <ChatMessage message={{ role: 'assistant', text: m.summary }} />
+                    <div className="agent-response-actions">
+                      <button 
+                        className="view-logs-btn"
+                        onClick={() => setModalData(m.raw_logs)}
+                      >
+                        <FileText size={14} />
+                        View Full Details
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             
@@ -200,31 +217,91 @@ export default function ChatPage({ onLogout }) {
 
           {/* Composer */}
           <div className="chat-composer-container">
-            <div className="composer-inner">
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask about agents, alerts, or vulnerabilities…"
-                className="composer-textarea"
-              />
-              <button
-                onClick={() => handleSend()}
-                className="send-btn"
-                disabled={!input.trim() || isTyping}
-                aria-label="Send message"
-              >
-                <Send size={16} />
-              </button>
+            <div className="composer-wrapper">
+              
+              {/* Claude-style internal agent dropdown */}
+              <div className="composer-toolbar">
+                <div className="agent-dropdown-container">
+                  <button 
+                    className="agent-dropdown-btn"
+                    onClick={() => setIsAgentDropdownOpen(!isAgentDropdownOpen)}
+                  >
+                    <span>{selectedSources.length > 0 ? selectedSources.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ') : 'Select Source'}</span>
+                    <ChevronDown size={14} />
+                  </button>
+
+                  <AnimatePresence>
+                    {isAgentDropdownOpen && (
+                      <motion.div 
+                        className="agent-dropdown-menu"
+                        initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}
+                      >
+                         <label className="dropdown-item">
+                           <input type="checkbox" checked={selectedSources.includes('wazuh')} onChange={() => setSelectedSources(p => p.includes('wazuh') ? p.filter(s => s !== 'wazuh') : [...p, 'wazuh'])} />
+                           Wazuh (SIEM)
+                         </label>
+                         <label className="dropdown-item">
+                           <input type="checkbox" checked={selectedSources.includes('hisec')} onChange={() => setSelectedSources(p => p.includes('hisec') ? p.filter(s => s !== 'hisec') : [...p, 'hisec'])} />
+                           HiSec (Threat)
+                         </label>
+                         <label className="dropdown-item">
+                           <input type="checkbox" checked={selectedSources.includes('honeypot')} onChange={() => setSelectedSources(p => p.includes('honeypot') ? p.filter(s => s !== 'honeypot') : [...p, 'honeypot'])} />
+                           Honeypot
+                         </label>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              <div className="composer-inner">
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask GBB Security Assistant..."
+                  className="composer-textarea"
+                />
+                <button
+                  onClick={() => handleSend()}
+                  className="send-btn"
+                  disabled={!input.trim() || isTyping}
+                  aria-label="Send message"
+                >
+                  <Send size={16} />
+                </button>
+              </div>
             </div>
             <div className="composer-footer">
-              Wazuh Integration · AI responses can make mistakes · Verify critical alerts
+              GBB AI can make mistakes. Please verify critical security alerts.
             </div>
           </div>
         </main>
       </div>
+
+      {/* Full-Screen Logs Modal */}
+      <AnimatePresence>
+        {modalData && (
+          <motion.div 
+            className="log-modal-overlay"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <div className="log-modal-content">
+              <div className="log-modal-header">
+                <h2>Raw Security Logs</h2>
+                <button className="icon-btn" onClick={() => setModalData(null)}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="log-modal-body">
+                <pre>{JSON.stringify(modalData, null, 2)}</pre>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
