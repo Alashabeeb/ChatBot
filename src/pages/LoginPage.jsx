@@ -75,7 +75,7 @@ export default function LoginPage({ onLogin }) {
              
              <form className="gb-form" onSubmit={handleLogin}>
                 <button type="submit" className="gb-login-btn" disabled={isLoading}>
-                   {isLoading ? 'Connecting...' : 'Access Dashboard'}
+                   {isLoading ? 'Connecting...' : 'Open ChatBit'}
                 </button>
              </form>
            </div>
