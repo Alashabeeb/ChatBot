@@ -12,25 +12,28 @@ const PORT = process.env.PORT || 3002;
 const OPENSEARCH_URL = 'https://10.0.126.250:9200';
 const WAZUH_USER = process.env.WAZUH_USER;
 const WAZUH_PASSWORD = process.env.WAZUH_PASSWORD;
-// Force 127.0.0.1 to bypass Node's IPv6 resolution bug and ignore old .env settings
-const LLAMA_API_URL = 'http://127.0.0.1:11434/api/generate';
+// Use environment variable for the LLM API URL (Fallback to port 8081 if not set)
+const LLM_API_URL = process.env.LLM_API_URL || 'http://127.0.0.1:8081/v1/chat/completions';
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 /**
- * Single Llama 3 Call for Summarization (120s timeout for CPU)
+ * Single LLM Call for Summarization using custom foundation-sec-8b-instruct
  */
-async function askLlama(prompt, systemInstruction) {
+async function askLLM(prompt, systemInstruction) {
   try {
-    const response = await axios.post(LLAMA_API_URL, {
-      model: 'llama3',
-      prompt: prompt,
-      system: systemInstruction,
-      stream: false
+    const response = await axios.post(LLM_API_URL, {
+      model: 'foundation-sec-8b-instruct',
+      messages: [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: prompt }
+      ],
+      max_tokens: 200
     }, { timeout: 120000 }); 
-    return response.data.response.trim();
+    
+    return response.data.choices[0].message.content.trim();
   } catch (error) {
-    console.warn("Llama 3 Unreachable. Falling back to rule-based logic.");
+    console.warn("Custom LLM Unreachable. Falling back to rule-based logic.", error.message);
     return null;
   }
 }
@@ -124,7 +127,7 @@ app.post('/api/chat', async (req, res) => {
     } else {
       // Only invoke the heavy CPU if we actually have logs to summarize
       const summaryPrompt = `User asked: "${text}". SIEM JSON logs found: ${JSON.stringify(rawData).substring(0, 1500)}. Write a clear, 2-sentence summary answering the user directly. Do not say "based on the JSON".`;
-      const llamaSummary = await askLlama(summaryPrompt, "You are a senior SOC analyst. Summarize security logs clearly.");
+      const llamaSummary = await askLLM(summaryPrompt, "You are a senior SOC analyst. Summarize security logs clearly.");
       
       if (llamaSummary) {
         summary = llamaSummary;
@@ -139,7 +142,7 @@ app.post('/api/chat', async (req, res) => {
       source: sourceLabel,
       summary: summary,
       raw_logs: rawData,
-      footer: summary.includes('SIEM logs found') || rawData.length === 0 ? 'Processed Instantly' : 'Analyzed by Llama 3'
+      footer: summary.includes('SIEM logs found') || rawData.length === 0 ? 'Processed Instantly' : 'Analyzed by foundation-sec-8b'
     });
 
   } catch (error) {
