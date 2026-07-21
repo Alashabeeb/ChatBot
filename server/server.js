@@ -64,23 +64,36 @@ app.post('/api/chat', async (req, res) => {
     intent = intent.toLowerCase();
 
     // Step 2: Build OpenSearch Query DSL
+    // We use a query_string so if the user types an IP address, OpenSearch finds it!
     let esQuery = {
-      query: { match_all: {} },
+      query: { 
+        query_string: { 
+          query: text, 
+          default_operator: "AND" 
+        } 
+      },
       sort: [{ "@timestamp": { order: "desc" } }],
       size: 15
     };
 
+    // Add specific filters if it's a known intent, but preserve the text search
     if (intent.includes('brute')) {
-      esQuery = {
-        query: { match: { "rule.groups": "authentication_failures" } },
-        sort: [{ "@timestamp": { order: "desc" } }],
-        size: 15
+      esQuery.query = {
+        bool: {
+          must: [
+            { match: { "rule.groups": "authentication_failures" } },
+            { query_string: { query: text } }
+          ]
+        }
       };
     } else if (intent.includes('vulnerab')) {
-      esQuery = {
-        query: { match: { "rule.groups": "vulnerability-detector" } },
-        sort: [{ "@timestamp": { order: "desc" } }],
-        size: 15
+      esQuery.query = {
+        bool: {
+          must: [
+            { match: { "rule.groups": "vulnerability-detector" } },
+            { query_string: { query: text } }
+          ]
+        }
       };
     }
 
