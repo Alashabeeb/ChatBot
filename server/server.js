@@ -28,7 +28,7 @@ async function askLLM(prompt, systemInstruction) {
         { role: "system", content: systemInstruction },
         { role: "user", content: prompt }
       ]
-    }, { timeout: 0 }); // 0 means no timeout at all 
+    }, { timeout: 0 });
     
     return response.data.choices[0].message.content.trim();
   } catch (error) {
@@ -82,7 +82,8 @@ app.post('/api/chat', async (req, res) => {
     let esQuery = {
       query: { bool: { must: [] } },
       sort: [{ "@timestamp": { order: "desc" } }],
-      size: 10 // Reduced to 10 so CPU Llama doesn't get overwhelmed with too much JSON
+      size: 10000, // Pulling the absolute maximum allowed by OpenSearch in a single request
+      track_total_hits: true // Force OpenSearch to count past 10,000 to infinity!
     };
 
     // If an IP was found, force OpenSearch to only return logs containing this IP!
@@ -136,10 +137,10 @@ app.post('/api/chat', async (req, res) => {
       }));
 
       // 2. Strict RAG System Prompt
-      const systemInstruction = `You are a strict SIEM AI Analyst. You MUST answer the user's question using ONLY the provided OpenSearch Context. If the answer is not in the Context, say "I don't have enough data to answer that." Do NOT give general cybersecurity advice.`;
+      const systemInstruction = `You are a strict SIEM AI Analyst. You MUST answer the user's question using ONLY the provided OpenSearch Context. If the user asks for a total count or 'how many', you MUST use the explicitly provided 'total matching alerts' number as the exact and absolute answer. Do NOT manually count the logs.`;
 
       // 3. Inject True Count into Prompt
-      const summaryPrompt = `User asked: "${text}"\n\nOpenSearch returned a total of ${totalHits} matching alerts in the database. Here are the top ${minifiedLogs.length} most recent logs:\n${JSON.stringify(minifiedLogs)}`;
+      const summaryPrompt = `User asked: "${text}"\n\nOpenSearch returned an exact total of ${totalHits} matching alerts in the entire database. Here is a sample of the top ${minifiedLogs.length} most recent logs to analyze for patterns:\n${JSON.stringify(minifiedLogs)}`;
       
       const llamaSummary = await askLLM(summaryPrompt, systemInstruction);
       
