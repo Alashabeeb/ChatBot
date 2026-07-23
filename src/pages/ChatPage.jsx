@@ -6,6 +6,7 @@ import ChatMessage, { TypingDots } from '../components/ChatMessage';
 import DataCard from '../components/DataCard';
 import ChartCard from '../components/ChartCard';
 import Sidebar from '../components/Sidebar';
+import LogDetailsModal from '../components/LogDetailsModal';
 import './ChatPage.css';
 
 // Synthetic Chart Data
@@ -184,7 +185,7 @@ export default function ChatPage({ onLogout }) {
                     <div className="agent-response-actions">
                       <button 
                         className="view-logs-btn"
-                        onClick={() => setModalData(m.raw_logs)}
+                        onClick={() => setModalData({ logs: m.raw_logs, source: m.source, summary: m.summary })}
                       >
                         <FileText size={14} />
                         View Full Details
@@ -275,13 +276,16 @@ export default function ChatPage({ onLogout }) {
           >
             <div className="log-modal-content">
               <div className="log-modal-header">
-                <h2>Raw Security Logs</h2>
+                <div>
+                  <h2>Event Details</h2>
+                  <p className="log-modal-subtitle">{modalData.summary}</p>
+                </div>
                 <button className="icon-btn" onClick={() => setModalData(null)}>
                   <X size={20} />
                 </button>
               </div>
               <div className="log-modal-body">
-                <pre>{JSON.stringify(modalData, null, 2)}</pre>
+                <LogDetailsModal logs={modalData.logs} source={modalData.source} />
               </div>
             </div>
           </motion.div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Shield, Eye, EyeOff, ShieldCheck, Activity, Zap } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import TerminalFeed from '../components/TerminalFeed';
 import './LoginPage.css';
 
 export default function LoginPage({ onLogin }) {
@@ -31,38 +32,42 @@ export default function LoginPage({ onLogin }) {
       </header>
 
       <main className="gb-main">
-        {/* Abstract Background Graphic */}
+        {/* Abstract Background Graphic + Live Terminal */}
         <div className="gb-graphic-container">
-           <div className="network-orb">
-              <div className="orb-outer-ring"></div>
-              <div className="orb-inner-ring"></div>
-              <div className="orb-core"></div>
-           </div>
-           
-           {/* Floating Glass Nodes */}
-           <div className="floating-node node-1">
-             Real-time Monitoring
-           </div>
-           
-           <div className="floating-node node-2">
-             Threat Analytics
-           </div>
-           
-           <div className="floating-node node-3">
-             Wazuh
-           </div>
-           
-           <div className="floating-node node-4">
-             Agent Insights
-           </div>
-           
-           <div className="floating-node node-5">
-             AI-Powered Triage
-           </div>
-           
-           <div className="floating-node node-6">
-             Security
-           </div>
+          <div className="gb-orb-stage">
+            <div className="network-orb">
+                <div className="orb-outer-ring"></div>
+                <div className="orb-inner-ring"></div>
+                <div className="orb-core"></div>
+            </div>
+
+            {/* Floating Glass Nodes */}
+            <div className="floating-node node-1">
+              Real-time Monitoring
+            </div>
+
+            <div className="floating-node node-2">
+              Threat Analytics
+            </div>
+
+            <div className="floating-node node-3">
+              Wazuh
+            </div>
+
+            <div className="floating-node node-4">
+              Agent Insights
+            </div>
+
+            <div className="floating-node node-5">
+              AI-Powered Triage
+            </div>
+
+            <div className="floating-node node-6">
+              Security
+            </div>
+          </div>
+
+          <TerminalFeed />
         </div>
         
         {/* Login Box */}
@@ -75,7 +80,7 @@ export default function LoginPage({ onLogin }) {
              
              <form className="gb-form" onSubmit={handleLogin}>
                 <button type="submit" className="gb-login-btn" disabled={isLoading}>
-                   {isLoading ? 'Connecting...' : 'Open ChatBit'}
+                   {isLoading ? 'Connecting...' : 'Open ChatBot'}
                 </button>
              </form>
            </div>

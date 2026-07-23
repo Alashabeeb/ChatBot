@@ -1,33 +1,21 @@
 import { motion } from 'framer-motion';
-import { Shield, User } from 'lucide-react';
 import './ChatMessage.css';
 
 export default function ChatMessage({ message }) {
   const isUser = message.role === 'user';
-  
+
   return (
     <motion.div
       className={`chat-message-row ${isUser ? 'row-user' : 'row-bot'}`}
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className="chat-message-container">
-        {!isUser && (
-          <div className="avatar bot-avatar">
-            <Shield size={16} />
-          </div>
-        )}
-        
         <div className={`chat-content ${isUser ? 'content-user' : 'content-bot'}`}>
-          <div className="message-text">{message.text}</div>
+          {!isUser && <span className="assistant-label">GBB Assistant</span>}
+          <div className={isUser ? 'message-bubble' : 'message-text'}>{message.text}</div>
         </div>
-
-        {isUser && (
-          <div className="avatar user-avatar">
-            <User size={16} />
-          </div>
-        )}
       </div>
     </motion.div>
   );
@@ -42,9 +30,6 @@ export function TypingDots() {
       exit={{ opacity: 0 }}
     >
       <div className="chat-message-container">
-        <div className="avatar bot-avatar">
-          <Shield size={16} />
-        </div>
         <div className="chat-content content-bot typing-container">
           {[0, 1, 2].map((i) => (
             <motion.span
