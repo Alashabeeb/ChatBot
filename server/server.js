@@ -109,8 +109,10 @@ app.post('/api/chat', async (req, res) => {
       headers: { Authorization: `Basic ${authString}`, 'Content-Type': 'application/json' },
       httpsAgent
     });
-    
     const rawData = osResponse.data.hits.hits.map(hit => hit._source);
+    // Extract true total from OpenSearch
+    const totalHits = osResponse.data.hits.total.value || rawData.length;
+    
     let sourceLabel = `wazuh-indexer /wazuh-alerts-*`;
     if (extractedIPs.length > 0) sourceLabel += ` (Target: ${extractedIPs[0]})`;
 
@@ -125,15 +127,28 @@ app.post('/api/chat', async (req, res) => {
         ? `I scanned the SIEM logs, but I did not find any alerts related to the IP address ${extractedIPs[0]}.` 
         : `I could not find any alerts matching your request in the SIEM database.`;
     } else {
-      // Only invoke the heavy CPU if we actually have logs to summarize
-      const summaryPrompt = `User asked: "${text}". SIEM JSON logs found: ${JSON.stringify(rawData).substring(0, 1500)}. Write a clear, 2-sentence summary answering the user directly. Do not say "based on the JSON".`;
-      const llamaSummary = await askLLM(summaryPrompt, "You are a senior SOC analyst. Summarize security logs clearly.");
+      // 1. Minify logs to prevent JSON breakage and token bloat
+      const minifiedLogs = rawData.map(log => ({
+        time: log['@timestamp'],
+        level: log.rule?.level,
+        desc: log.rule?.description,
+        srcip: log.data?.srcip || log.srcip || 'N/A',
+        user: log.data?.srcuser || log.data?.dstuser || log.data?.user || 'N/A'
+      }));
+
+      // 2. Strict RAG System Prompt
+      const systemInstruction = `You are a strict SIEM AI Analyst. You MUST answer the user's question using ONLY the provided OpenSearch Context. If the answer is not in the Context, say "I don't have enough data to answer that." Do NOT give general cybersecurity advice. Keep it to 2 sentences max.`;
+
+      // 3. Inject True Count into Prompt
+      const summaryPrompt = `User asked: "${text}"\n\nOpenSearch returned a total of ${totalHits} matching alerts in the database. Here are the top ${minifiedLogs.length} most recent logs:\n${JSON.stringify(minifiedLogs)}`;
+      
+      const llamaSummary = await askLLM(summaryPrompt, systemInstruction);
       
       if (llamaSummary) {
         summary = llamaSummary;
       } else {
         // CPU fallback
-        summary = `Successfully retrieved ${rawData.length} alerts from the Wazuh Indexer matching your query. Click "View Full Details" to see the raw JSON logs.`;
+        summary = `Successfully retrieved ${totalHits} alerts from the Wazuh Indexer matching your query. Click "View Full Details" to see the raw JSON logs.`;
       }
     }
 
