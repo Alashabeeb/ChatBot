@@ -27,9 +27,8 @@ async function askLLM(prompt, systemInstruction) {
       messages: [
         { role: "system", content: systemInstruction },
         { role: "user", content: prompt }
-      ],
-      max_tokens: 200
-    }, { timeout: 120000 }); 
+      ]
+    }, { timeout: 0 }); // 0 means no timeout at all 
     
     return response.data.choices[0].message.content.trim();
   } catch (error) {
@@ -137,7 +136,7 @@ app.post('/api/chat', async (req, res) => {
       }));
 
       // 2. Strict RAG System Prompt
-      const systemInstruction = `You are a strict SIEM AI Analyst. You MUST answer the user's question using ONLY the provided OpenSearch Context. If the answer is not in the Context, say "I don't have enough data to answer that." Do NOT give general cybersecurity advice. Keep it to 2 sentences max.`;
+      const systemInstruction = `You are a strict SIEM AI Analyst. You MUST answer the user's question using ONLY the provided OpenSearch Context. If the answer is not in the Context, say "I don't have enough data to answer that." Do NOT give general cybersecurity advice.`;
 
       // 3. Inject True Count into Prompt
       const summaryPrompt = `User asked: "${text}"\n\nOpenSearch returned a total of ${totalHits} matching alerts in the database. Here are the top ${minifiedLogs.length} most recent logs:\n${JSON.stringify(minifiedLogs)}`;
