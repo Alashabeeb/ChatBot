@@ -38,23 +38,41 @@ function TruncatedSummary({ text, wordLimit = 20 }) {
   );
 }
 
+const SESSIONS_KEY = 'soc_chat_sessions';
+const MAX_SESSIONS = 5;
+
+const INITIAL_MESSAGES = [
+  {
+    role: 'assistant',
+    type: 'text',
+    text: 'Welcome to SOC ChatBot. I am connected to the manager. Ask me about agent status, recent alerts, or run /stats for trends.',
+    timestamp: new Date().toISOString()
+  }
+];
+
+function loadSessions() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSIONS_KEY)) || [];
+  } catch { return []; }
+}
+
+function saveSessions(sessions) {
+  try {
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  } catch {}
+}
+
 export default function ChatPage({ onLogout }) {
   const { theme, toggleTheme } = useTheme();
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      type: 'text',
-      text: 'Welcome to SOC ChatBot. I am connected to the manager. Ask me about agent status, recent alerts, or run /stats for trends.',
-      timestamp: new Date().toISOString()
-    },
-  ]);
+  const [sessions, setSessions] = useState(loadSessions);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedSources, setSelectedSources] = useState(['wazuh']);
   const [modalData, setModalData] = useState(null);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
-  const [lastUserPrompt, setLastUserPrompt] = useState('');
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -76,12 +94,10 @@ export default function ChatPage({ onLogout }) {
 
   async function getBackendReply(text, signal) {
     try {
-      // Point to our new Node.js Proxy Server (Port changed to 3002 to avoid conflicts)
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:3002/api/chat' 
         : `http://${window.location.hostname}:3002/api/chat`;
 
-      // Build conversation history for context (last 10 messages)
       const history = messages
         .filter(m => m.type === 'text' || m.type === 'agent_response')
         .slice(-10)
@@ -101,7 +117,6 @@ export default function ChatPage({ onLogout }) {
       const data = await response.json();
       
       if (!response.ok) {
-        // If the backend sent a graceful 500 error, return it so the chat UI shows it
         if (data.type === 'text') return data;
         throw new Error('Network error or server is down');
       }
@@ -129,16 +144,78 @@ export default function ChatPage({ onLogout }) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    setMessages((prev) => [...prev, { role: 'user', type: 'text', text }]);
+    const userMsg = { role: 'user', type: 'text', text };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
     setInput('');
     setIsTyping(true);
-    setLastUserPrompt(text);
+
+    // Handle Session Creation / Update
+    let currentSessionId = activeSessionId;
+    let currentSessions = [...sessions];
+
+    if (!currentSessionId) {
+      currentSessionId = 'sess_' + Date.now();
+      let title = text;
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+      if (title.length > 40) title = title.slice(0, 37) + '...';
+
+      const newSession = {
+        id: currentSessionId,
+        title,
+        messages: newMessages
+      };
+
+      currentSessions = [newSession, ...currentSessions.filter(s => s.id !== currentSessionId)].slice(0, MAX_SESSIONS);
+      setActiveSessionId(currentSessionId);
+      setSessions(currentSessions);
+      saveSessions(currentSessions);
+    } else {
+      currentSessions = currentSessions.map(s => s.id === currentSessionId ? { ...s, messages: newMessages } : s);
+      setSessions(currentSessions);
+      saveSessions(currentSessions);
+    }
 
     const reply = await getBackendReply(text, controller.signal);
 
     setIsTyping(false);
     abortControllerRef.current = null;
-    setMessages((prev) => [...prev, { role: 'assistant', ...reply }]);
+    
+    const finalMessages = [...newMessages, { role: 'assistant', ...reply }];
+    setMessages(finalMessages);
+
+    // Save final messages to session
+    if (currentSessionId) {
+      setSessions(prev => {
+        const updated = prev.map(s => s.id === currentSessionId ? { ...s, messages: finalMessages } : s);
+        saveSessions(updated);
+        return updated;
+      });
+    }
+  }
+
+  function handleNewChat() {
+    if (isTyping) handleCancel();
+    setActiveSessionId(null);
+    setMessages(INITIAL_MESSAGES);
+    setInput('');
+  }
+
+  function handleSelectSession(sessionId) {
+    if (isTyping) handleCancel();
+    const target = sessions.find(s => s.id === sessionId);
+    if (target) {
+      setActiveSessionId(sessionId);
+      setMessages(target.messages);
+    }
+  }
+
+  function handleClearSessions() {
+    if (isTyping) handleCancel();
+    setSessions([]);
+    setActiveSessionId(null);
+    setMessages(INITIAL_MESSAGES);
+    localStorage.removeItem(SESSIONS_KEY);
   }
 
   function handleCancel() {
@@ -199,7 +276,11 @@ export default function ChatPage({ onLogout }) {
           isOpen={sidebarOpen} 
           onClose={() => setSidebarOpen(false)} 
           onPromptClick={handleSend}
-          lastUserPrompt={lastUserPrompt}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={handleSelectSession}
+          onNewChat={handleNewChat}
+          onClearSessions={handleClearSessions}
         />
 
         {/* Mobile sidebar overlay */}

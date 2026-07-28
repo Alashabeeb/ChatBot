@@ -12,10 +12,36 @@ const PORT = process.env.PORT || 3002;
 const OPENSEARCH_URL = process.env.OPENSEARCH_URL;
 const WAZUH_USER = process.env.WAZUH_USER;
 const WAZUH_PASSWORD = process.env.WAZUH_PASSWORD;
+const WAZUH_SERVER_API_URL = process.env.WAZUH_SERVER_API_URL;
 // Use environment variable for the LLM API URL
 const LLM_API_URL = process.env.LLM_API_URL;
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+let wazuhToken = null;
+let tokenExpiresAt = 0; // Epoch time
+
+async function getWazuhToken() {
+  if (wazuhToken && Date.now() < tokenExpiresAt) {
+    return wazuhToken;
+  }
+  
+  try {
+    const authString = Buffer.from(`${WAZUH_USER}:${WAZUH_PASSWORD}`).toString('base64');
+    const response = await axios.post(`${WAZUH_SERVER_API_URL}/security/user/authenticate?raw=true`, null, {
+      headers: {
+        Authorization: `Basic ${authString}`
+      },
+      httpsAgent
+    });
+    wazuhToken = response.data;
+    tokenExpiresAt = Date.now() + 14 * 60 * 1000; // 14 mins
+    return wazuhToken;
+  } catch (error) {
+    console.error("Failed to authenticate with Wazuh API:", error.message);
+    throw new Error("Wazuh API Authentication Failed");
+  }
+}
 
 /**
  * Single LLM Call for Summarization using custom foundation-sec-8b-instruct
@@ -103,6 +129,8 @@ app.post('/api/chat', async (req, res) => {
     let intent = 'alerts'; // Default
     if (lowerText.includes('brute') || lowerText.includes('fail') || lowerText.includes('login') || lowerText.includes('auth')) intent = 'brute_force';
     else if (lowerText.includes('vulnerab') || lowerText.includes('cve')) intent = 'vulnerabilities';
+    else if (/\b(agent|agents|endpoint|endpoints)\b/.test(lowerText) || /\b(connected|disconnected|active)\b/.test(lowerText)) intent = 'agent_inventory';
+    else if (/\b(manager|server status|daemons)\b/.test(lowerText)) intent = 'manager_status';
 
     // Extract IPv4 addresses
     const ipRegex = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
@@ -132,9 +160,79 @@ app.post('/api/chat', async (req, res) => {
       timeLabel = 'Last 24 Hours';
     }
 
-    // Strip English filler words to prevent OpenSearch from matching unrelated logs
-    const stopWords = /\b(what|is|the|for|past|last|show|me|get|total|find|check|count|all|any|recent|hours|hour|hr|hrs|mins|min|days|day|today|auth|authentication|failures|failure|login|logins|attack|attacks|vulnerability|vulnerabilities)\b/gi;
+    // Strip ONLY grammatical/question filler words and time phrases (PRESERVE security terms like auth, failure, login, cve, ip)
+    const stopWords = /\b(what|is|are|the|for|past|last|show|me|get|give|total|find|check|count|many|how|all|any|recent|hours|hour|hr|hrs|mins|min|minutes|days|day|today|please|can|you|could)\b/gi;
     const cleanedSearchText = lowerText.replace(stopWords, '').replace(/\s+/g, ' ').trim();
+
+    // ==========================================
+    // WAZUH SERVER API (Agents / Manager Status)
+    // ==========================================
+    if (intent === 'agent_inventory' || intent === 'manager_status') {
+      try {
+        const token = await getWazuhToken();
+        let apiUrl = '';
+        let apiQuery = {};
+        
+        if (intent === 'agent_inventory') {
+          let wqlStatus = '';
+          if (lowerText.includes('disconnected')) wqlStatus = 'status=disconnected';
+          else if (lowerText.includes('active') || lowerText.includes('connected')) wqlStatus = 'status=active';
+          
+          apiUrl = `${WAZUH_SERVER_API_URL}/agents`;
+          apiQuery = { limit: 500, pretty: true, select: 'id,name,status,ip,os.name,os.version' };
+          if (wqlStatus) apiQuery.q = wqlStatus;
+          
+        } else if (intent === 'manager_status') {
+          apiUrl = `${WAZUH_SERVER_API_URL}/manager/status`;
+          apiQuery = { pretty: true };
+        }
+        
+        const apiResponse = await axios.get(apiUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: apiQuery,
+          httpsAgent
+        });
+        
+        const rawData = apiResponse.data.data.affected_items || [apiResponse.data.data];
+        const totalHits = apiResponse.data.data.total_affected_items || rawData.length;
+        
+        const sourceLabel = `wazuh-server-api ${new URL(apiUrl).pathname}`;
+        let summary = '';
+        
+        if (totalHits === 0) {
+          summary = `I checked the Wazuh Server API, but found zero results for your query.`;
+        } else {
+          const systemInstruction = `You are a strict SIEM AI Analyst answering a question about the Wazuh system status or agent inventory.
+1. Use the EXACT data from the API response below.
+2. State the exact counts of agents or daemon statuses.
+3. Be concise and professional.`;
+
+          const summaryPrompt = `User asked: "${text}"
+          
+API ENDPOINT: ${apiUrl}
+TOTAL RESULTS: ${totalHits}
+API DATA:
+${JSON.stringify(rawData)}`;
+          
+          const llamaSummary = await askLLM(summaryPrompt, systemInstruction, history);
+          summary = llamaSummary || `Successfully retrieved ${totalHits} items from the Wazuh Server API.`;
+        }
+        
+        return res.json({
+          type: 'agent_response',
+          source: sourceLabel,
+          summary: summary,
+          raw_logs: rawData,
+          footer: 'Analyzed by foundation-sec-8b'
+        });
+      } catch (error) {
+        console.error('Server API Error:', error.message);
+        return res.status(500).json({
+          type: 'text',
+          text: `⚠️ Wazuh Server API Connection Error: ${error.message}. Please ensure port 55000 is reachable.`
+        });
+      }
+    }
 
     // ==========================================
     // BUILD HIGHLY ACCURATE OPENSEARCH QUERY WITH TIME FILTER
@@ -156,23 +254,52 @@ app.post('/api/chat', async (req, res) => {
     // If an IP was found, force OpenSearch to only return logs containing this IP!
     if (extractedIPs.length > 0) {
       esQuery.query.bool.must.push({ query_string: { query: extractedIPs[0] } });
-    } else if (cleanedSearchText.length > 2) {
-      // Search only meaningful keywords left after stripping stop words
-      esQuery.query.bool.must.push({ query_string: { query: cleanedSearchText, default_operator: "AND" } });
     }
 
-    // Add specific SIEM filters
+    // Add specific SIEM filters based on intent
     if (intent === 'brute_force') {
-      esQuery.query.bool.must.push({ match: { "rule.groups": "authentication_failures" } });
+      esQuery.query.bool.must.push({
+        bool: {
+          should: [
+            { match: { "rule.groups": "authentication_failed" } },
+            { match: { "rule.groups": "authentication_failures" } },
+            { match: { "rule.groups": "sshd" } },
+            { match_phrase: { "rule.description": "failed" } },
+            { match_phrase: { "rule.description": "failure" } }
+          ],
+          minimum_should_match: 1
+        }
+      });
     } else if (intent === 'vulnerabilities') {
-      esQuery.query.bool.must.push({ match: { "rule.groups": "vulnerability-detector" } });
+      esQuery.query.bool.must.push({
+        bool: {
+          should: [
+            { match: { "rule.groups": "vulnerability-detector" } },
+            { match_phrase: { "rule.description": "vulnerability" } },
+            { match_phrase: { "rule.description": "cve" } }
+          ],
+          minimum_should_match: 1
+        }
+      });
+    } else if (cleanedSearchText.length > 2 && extractedIPs.length === 0) {
+      // General search on remaining security terms
+      esQuery.query.bool.must.push({ multi_match: { query: cleanedSearchText, fields: ["rule.description", "full_log"] } });
     }
 
     // ==========================================
-    // FETCH REAL DATA
+    // FETCH REAL DATA (Official Wazuh Indexer Specs)
     // ==========================================
     const authString = Buffer.from(`${WAZUH_USER}:${WAZUH_PASSWORD}`).toString('base64');
-    const osResponse = await axios.post(`${OPENSEARCH_URL}/wazuh-alerts-*/_search`, esQuery, {
+    
+    // Choose index based on intent according to official Wazuh docs:
+    // Alerts -> /wazuh-alerts-*/_search
+    // Vulnerabilities -> /wazuh-states-vulnerabilities-*/_search,wazuh-alerts-*/_search
+    let targetIndex = `${OPENSEARCH_URL}/wazuh-alerts-*/_search`;
+    if (intent === 'vulnerabilities') {
+      targetIndex = `${OPENSEARCH_URL}/wazuh-states-vulnerabilities-*,wazuh-alerts-*/_search`;
+    }
+
+    const osResponse = await axios.post(targetIndex, esQuery, {
       headers: { Authorization: `Basic ${authString}`, 'Content-Type': 'application/json' },
       httpsAgent
     });
@@ -193,13 +320,15 @@ app.post('/api/chat', async (req, res) => {
         ? `I scanned the SIEM logs for the ${timeLabel}, but found zero alerts for IP ${extractedIPs[0]}. You can ask for a wider window (e.g. "past 7 days").` 
         : `I searched the database for the ${timeLabel}, but found zero matching alerts. You can try adjusting the time range (e.g. "past 7 days").`;
     } else {
-      // 1. Minify logs to prevent JSON breakage and token bloat
+      // 1. Minify logs according to official Wazuh alert & vulnerability index schemas
       const minifiedLogs = rawData.map(log => ({
-        time: log['@timestamp'],
-        level: log.rule?.level,
-        desc: log.rule?.description,
-        srcip: log.data?.srcip || log.srcip || 'N/A',
-        user: log.data?.srcuser || log.data?.dstuser || log.data?.user || 'N/A'
+        time: log['@timestamp'] || log.vulnerability?.detected_at || 'N/A',
+        level: typeof log.rule?.level === 'number' ? log.rule.level : log.vulnerability?.severity || 0,
+        desc: log.rule?.description || log.vulnerability?.description || 'N/A',
+        srcip: log.data?.srcip || log.srcip || log.agent?.ip || 'N/A',
+        user: log.data?.srcuser || log.data?.dstuser || log.data?.user || 'N/A',
+        agent: log.agent?.name || log.agent?.id || 'N/A',
+        cve: log.vulnerability?.id || 'N/A'
       }));
 
       // 2. Strict RAG System Prompt

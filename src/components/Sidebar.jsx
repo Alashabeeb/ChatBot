@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings, Search, Bug, Globe, Key, Trash2 } from 'lucide-react';
+import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings, Search, Bug, Globe, Key, Trash2, MessageSquare } from 'lucide-react';
 import './Sidebar.css';
 
 const QUICK_PROMPTS = [
@@ -11,44 +11,9 @@ const QUICK_PROMPTS = [
   { label: 'Suspicious SSH activity', prompt: 'Show me all SSH login failures and suspicious SSH activity', icon: <Terminal size={14} className="text-warning" /> },
 ];
 
-const RECENT_KEY = 'soc_recent_chats';
-const MAX_RECENT = 5;
-
-function getRecent() {
-  try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
-  } catch { return []; }
-}
-
-function saveRecent(list) {
-  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-}
-
-export default function Sidebar({ isOpen, onClose, onPromptClick, lastUserPrompt }) {
+export default function Sidebar({ isOpen, onClose, onPromptClick, sessions = [], activeSessionId, onSelectSession, onNewChat, onClearSessions }) {
   const [width, setWidth] = useState(280);
-  const [recentChats, setRecentChats] = useState(getRecent);
   const isResizing = useRef(false);
-
-  // Save clean conversation session title to Recent Chats (FIFO max 5)
-  useEffect(() => {
-    if (!lastUserPrompt || !lastUserPrompt.trim()) return;
-    setRecentChats(prev => {
-      let title = lastUserPrompt.trim();
-      // Capitalize first letter and format cleanly
-      title = title.charAt(0).toUpperCase() + title.slice(1);
-      if (title.length > 45) title = title.slice(0, 42) + '...';
-      
-      const filtered = prev.filter(p => p !== title);
-      const updated = [...filtered, title].slice(-MAX_RECENT);
-      saveRecent(updated);
-      return updated;
-    });
-  }, [lastUserPrompt]);
-
-  function clearRecent() {
-    setRecentChats([]);
-    localStorage.removeItem(RECENT_KEY);
-  }
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -95,7 +60,8 @@ export default function Sidebar({ isOpen, onClose, onPromptClick, lastUserPrompt
              whileHover={{ scale: 1.02 }}
              whileTap={{ scale: 0.98 }}
              onClick={() => {
-                window.location.reload();
+                onNewChat();
+                if (window.innerWidth < 768) onClose();
              }}
            >
              <Plus size={18} />
@@ -129,28 +95,28 @@ export default function Sidebar({ isOpen, onClose, onPromptClick, lastUserPrompt
         <div className="sidebar-section">
           <div className="sidebar-heading-row">
             <h3 className="sidebar-heading">Recent Chats</h3>
-            {recentChats.length > 0 && (
-              <button className="clear-recent-btn" onClick={clearRecent} title="Clear recent chats">
+            {sessions.length > 0 && (
+              <button className="clear-recent-btn" onClick={onClearSessions} title="Clear all chat sessions">
                 <Trash2 size={13} />
               </button>
             )}
           </div>
           <div className="recent-list">
-            {recentChats.length === 0 && (
+            {sessions.length === 0 && (
               <div className="recent-empty">No recent chats yet</div>
             )}
-            {[...recentChats].reverse().map((item, idx) => (
+            {sessions.map((session) => (
               <motion.button
-                key={idx}
-                className="recent-item-btn"
+                key={session.id}
+                className={`recent-item-btn ${session.id === activeSessionId ? 'active-session' : ''}`}
                 onClick={() => {
-                  onPromptClick(item);
+                  onSelectSession(session.id);
                   if (window.innerWidth < 768) onClose();
                 }}
                 whileHover={{ x: 2 }}
               >
-                <Clock size={14} className="text-muted" />
-                <span className="truncate">{item}</span>
+                <MessageSquare size={14} className={session.id === activeSessionId ? 'text-accent' : 'text-muted'} />
+                <span className="truncate">{session.title}</span>
               </motion.button>
             ))}
           </div>
