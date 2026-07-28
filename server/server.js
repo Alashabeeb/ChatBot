@@ -9,11 +9,11 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3002;
-const OPENSEARCH_URL = 'https://10.0.126.250:9200';
+const OPENSEARCH_URL = process.env.OPENSEARCH_URL;
 const WAZUH_USER = process.env.WAZUH_USER;
 const WAZUH_PASSWORD = process.env.WAZUH_PASSWORD;
-// Use environment variable for the LLM API URL (Fallback to port 8081 if not set)
-const LLM_API_URL = process.env.LLM_API_URL || 'http://127.0.0.1:8081/v1/chat/completions';
+// Use environment variable for the LLM API URL
+const LLM_API_URL = process.env.LLM_API_URL;
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
@@ -82,7 +82,7 @@ app.post('/api/chat', async (req, res) => {
     let esQuery = {
       query: { bool: { must: [] } },
       sort: [{ "@timestamp": { order: "desc" } }],
-      size: 10000, // Pulling the absolute maximum allowed by OpenSearch in a single request
+      size: 50, // Max safe limit for 8K token context window. Do not exceed this or the LLM throws HTTP 400!
       track_total_hits: true // Force OpenSearch to count past 10,000 to infinity!
     };
 
@@ -137,10 +137,18 @@ app.post('/api/chat', async (req, res) => {
       }));
 
       // 2. Strict RAG System Prompt
-      const systemInstruction = `You are a strict SIEM AI Analyst. You MUST answer the user's question using ONLY the provided OpenSearch Context. If the user asks for a total count or 'how many', you MUST use the explicitly provided 'total matching alerts' number as the exact and absolute answer. Do NOT manually count the logs.`;
+      const systemInstruction = `You are a SIEM AI Analyst. Rules:
+1. The "TOTAL MATCHES" number is the exact, verified count from the database. Always use it as fact.
+2. The "SAMPLE LOGS" below are a representative snapshot. Analyze them for patterns (top IPs, attack types, affected users).
+3. Never say "based on the 50 logs" or "I can only see X logs". Speak as if you analyzed the full dataset.
+4. Answer the user's question directly and comprehensively.`;
 
       // 3. Inject True Count into Prompt
-      const summaryPrompt = `User asked: "${text}"\n\nOpenSearch returned an exact total of ${totalHits} matching alerts in the entire database. Here is a sample of the top ${minifiedLogs.length} most recent logs to analyze for patterns:\n${JSON.stringify(minifiedLogs)}`;
+      const summaryPrompt = `User asked: "${text}"
+
+TOTAL MATCHES: ${totalHits}
+SAMPLE LOGS:
+${JSON.stringify(minifiedLogs)}`;
       
       const llamaSummary = await askLLM(summaryPrompt, systemInstruction);
       
