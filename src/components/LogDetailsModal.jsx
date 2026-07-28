@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import './LogDetailsModal.css';
 
 // ---------- Wazuh field extraction (defensive — field names vary by rule) ----------
@@ -62,10 +62,26 @@ function topN(list, n = 3) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
 }
 
-export default function LogDetailsModal({ logs = [], source }) {
+export default function LogDetailsModal({ logs = [], source, totalHits }) {
   const [expandedRow, setExpandedRow] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(100);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const parsed = useMemo(() => logs.map((log) => ({ raw: log, ...extractFields(log) })), [logs]);
+  
+  const filteredParsed = useMemo(() => {
+    if (!searchQuery.trim()) return parsed;
+    const lower = searchQuery.toLowerCase();
+    return parsed.filter(p => 
+      p.srcip.toLowerCase().includes(lower) ||
+      p.user.toLowerCase().includes(lower) ||
+      p.host.toLowerCase().includes(lower) ||
+      p.description.toLowerCase().includes(lower) ||
+      p.email.toLowerCase().includes(lower) ||
+      (p.mitreIds && p.mitreIds.some(m => String(m).toLowerCase().includes(lower))) ||
+      (p.mitreTechniques && p.mitreTechniques.some(m => String(m).toLowerCase().includes(lower)))
+    );
+  }, [parsed, searchQuery]);
 
   const severityCounts = useMemo(() => {
     const counts = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -91,7 +107,7 @@ export default function LogDetailsModal({ logs = [], source }) {
       <div className="log-provenance">
         <span>{source || 'wazuh-alerts-*'}</span>
         <span className="dot">·</span>
-        <span>{logs.length} events</span>
+        <span>{totalHits || logs.length} events</span>
         <span className="dot">·</span>
         <span>Fetched {formatTime(new Date().toISOString())}</span>
       </div>
@@ -99,7 +115,7 @@ export default function LogDetailsModal({ logs = [], source }) {
       {/* Summary strip */}
       <div className="log-summary-strip">
         <div className="summary-stat">
-          <span className="stat-value">{logs.length}</span>
+          <span className="stat-value">{totalHits || logs.length}</span>
           <span className="stat-label">Total Events</span>
         </div>
         {(['critical', 'high', 'medium', 'low']).map((key) => (
@@ -119,6 +135,20 @@ export default function LogDetailsModal({ logs = [], source }) {
         <OffenderColumn title="Top Hosts" items={topHosts} />
       </div>
 
+      {/* Filter / Search Input */}
+      <div style={{ padding: '0 20px', marginBottom: '15px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-tertiary, #2d2d2d)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border, #444)' }}>
+          <Search size={16} color="var(--text-secondary, #aaa)" style={{ marginRight: '10px' }} />
+          <input 
+            type="text" 
+            placeholder="Filter these events..." 
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(100); setExpandedRow(null); }}
+            style={{ background: 'transparent', border: 'none', color: 'var(--text-primary, #fff)', width: '100%', outline: 'none', fontSize: '14px' }}
+          />
+        </div>
+      </div>
+
       {/* Detail table */}
       <div className="log-table-wrapper">
         <table className="log-table">
@@ -135,7 +165,13 @@ export default function LogDetailsModal({ logs = [], source }) {
             </tr>
           </thead>
           <tbody>
-            {parsed.map((p, i) => {
+            {filteredParsed.length === 0 ? (
+              <tr>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary, #aaa)' }}>
+                  No events match your filter.
+                </td>
+              </tr>
+            ) : filteredParsed.slice(0, visibleCount).map((p, i) => {
               const sev = severityBand(p.level);
               const isOpen = expandedRow === i;
               return (
@@ -179,6 +215,18 @@ export default function LogDetailsModal({ logs = [], source }) {
           </tbody>
         </table>
       </div>
+
+      {/* Load More Controls */}
+      {filteredParsed.length > visibleCount && (
+        <div className="pagination-controls" style={{ display: 'flex', justifyContent: 'center', marginTop: '15px', paddingBottom: '15px' }}>
+          <button 
+            onClick={() => setVisibleCount(c => c + 50)}
+            style={{ padding: '8px 24px', background: 'var(--bg-tertiary, #2d2d2d)', border: '1px solid var(--border, #444)', color: 'var(--text-primary, #fff)', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            Load Next 50 Events
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -223,6 +223,7 @@ ${JSON.stringify(rawData)}`;
           source: sourceLabel,
           summary: summary,
           raw_logs: rawData,
+          total_hits: totalHits,
           footer: 'Analyzed by foundation-sec-8b'
         });
       } catch (error) {
@@ -247,13 +248,13 @@ ${JSON.stringify(rawData)}`;
         }
       },
       sort: [{ "@timestamp": { order: "desc" } }],
-      size: 50, // Max safe limit for 8K token context window
+      size: 10000, // Fetch up to 10000 logs for frontend pagination
       track_total_hits: true // Force OpenSearch to count exact total
     };
 
     // If an IP was found, force OpenSearch to only return logs containing this IP!
     if (extractedIPs.length > 0) {
-      esQuery.query.bool.must.push({ query_string: { query: extractedIPs[0] } });
+      esQuery.query.bool.must.push({ multi_match: { query: extractedIPs[0], fields: ["*ip*", "*ip", "ip", "full_log", "agent.ip", "data.win.eventdata.ipAddress"], lenient: true } });
     }
 
     // Add specific SIEM filters based on intent
@@ -283,7 +284,7 @@ ${JSON.stringify(rawData)}`;
       });
     } else if (cleanedSearchText.length > 2 && extractedIPs.length === 0) {
       // General search on remaining security terms
-      esQuery.query.bool.must.push({ multi_match: { query: cleanedSearchText, fields: ["rule.description", "full_log"] } });
+      esQuery.query.bool.must.push({ multi_match: { query: cleanedSearchText, fields: ["rule.description", "full_log"], lenient: true } });
     }
 
     // ==========================================
@@ -321,7 +322,8 @@ ${JSON.stringify(rawData)}`;
         : `I searched the database for the ${timeLabel}, but found zero matching alerts. You can try adjusting the time range (e.g. "past 7 days").`;
     } else {
       // 1. Minify logs according to official Wazuh alert & vulnerability index schemas
-      const minifiedLogs = rawData.map(log => ({
+      // ONLY pass the top 50 logs to the LLM to avoid exceeding 8K token context window!
+      const minifiedLogs = rawData.slice(0, 50).map(log => ({
         time: log['@timestamp'] || log.vulnerability?.detected_at || 'N/A',
         level: typeof log.rule?.level === 'number' ? log.rule.level : log.vulnerability?.severity || 0,
         desc: log.rule?.description || log.vulnerability?.description || 'N/A',
@@ -361,6 +363,7 @@ ${JSON.stringify(minifiedLogs)}`;
       source: sourceLabel,
       summary: summary,
       raw_logs: rawData,
+      total_hits: totalHits,
       footer: summary.includes('SIEM logs found') || rawData.length === 0 ? 'Processed Instantly' : 'Analyzed by foundation-sec-8b'
     });
 

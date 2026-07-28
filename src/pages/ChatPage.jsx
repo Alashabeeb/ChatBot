@@ -316,7 +316,7 @@ export default function ChatPage({ onLogout }) {
                     <div className="agent-response-actions">
                       <button 
                         className="view-logs-btn"
-                        onClick={() => setModalData({ logs: m.raw_logs, source: m.source, summary: m.summary })}
+                        onClick={() => setModalData({ logs: m.raw_logs, source: m.source, summary: m.summary, totalHits: m.total_hits })}
                       >
                         <FileText size={14} />
                         View Full Details
@@ -427,7 +427,7 @@ export default function ChatPage({ onLogout }) {
                 </button>
               </div>
               <div className="log-modal-body">
-                <LogDetailsModal logs={modalData.logs} source={modalData.source} />
+                <LogDetailsModal logs={modalData.logs} source={modalData.source} totalHits={modalData.totalHits} />
               </div>
             </div>
           </motion.div>
