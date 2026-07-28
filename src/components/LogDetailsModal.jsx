@@ -19,6 +19,7 @@ function extractFields(log) {
     host: agent.name || agent.id || log.manager?.name || '—',
     srcip: data.srcip || data.src_ip || log.srcip || '—',
     user: data.srcuser || data.dstuser || data.user || '—',
+    email: data.email || data.mail || data.recipient || data.sender || data.srcuser_email || '—',
   };
 }
 
@@ -116,6 +117,7 @@ export default function LogDetailsModal({ logs = [], source }) {
               <th>Host</th>
               <th>Source IP</th>
               <th>User</th>
+              <th>Email</th>
             </tr>
           </thead>
           <tbody>
@@ -148,10 +150,11 @@ export default function LogDetailsModal({ logs = [], source }) {
                     <td>{p.host}</td>
                     <td className="mono">{p.srcip}</td>
                     <td className="mono">{p.user}</td>
+                    <td className="mono">{p.email}</td>
                   </tr>
                   {isOpen && (
                     <tr className="raw-row">
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <pre>{JSON.stringify(p.raw, null, 2)}</pre>
                       </td>
                     </tr>

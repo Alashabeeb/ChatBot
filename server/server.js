@@ -20,14 +20,24 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 /**
  * Single LLM Call for Summarization using custom foundation-sec-8b-instruct
  */
-async function askLLM(prompt, systemInstruction) {
+async function askLLM(prompt, systemInstruction, conversationHistory = []) {
   try {
+    // Build the messages array with conversation memory
+    const messages = [
+      { role: "system", content: systemInstruction }
+    ];
+
+    // Inject previous conversation history so the AI remembers context
+    for (const msg of conversationHistory) {
+      messages.push({ role: msg.role, content: msg.content });
+    }
+
+    // Add the current question
+    messages.push({ role: "user", content: prompt });
+
     const response = await axios.post(LLM_API_URL, {
       model: 'foundation-sec-8b-instruct',
-      messages: [
-        { role: "system", content: systemInstruction },
-        { role: "user", content: prompt }
-      ]
+      messages
     }, { timeout: 0 });
     
     return response.data.choices[0].message.content.trim();
@@ -41,7 +51,7 @@ async function askLLM(prompt, systemInstruction) {
  * Handle chat queries efficiently
  */
 app.post('/api/chat', async (req, res) => {
-  const { text, sources } = req.body;
+  const { text, sources, history = [] } = req.body;
 
   try {
     if (!sources || (!sources.includes('wazuh') && !sources.includes('all'))) {
@@ -55,13 +65,35 @@ app.post('/api/chat', async (req, res) => {
     
     // ==========================================
     // ZERO-LATENCY CONVERSATIONAL FAST-PATH
+    // Catches ALL non-SIEM messages before they hit OpenSearch
     // ==========================================
-    const greetings = ['hi', 'hello', 'hey', 'help', 'who are you', 'what can you do', 'good morning', 'good afternoon'];
-    // If the text is exactly a greeting or starts with a greeting and is very short
-    if (greetings.includes(lowerText) || (greetings.some(g => lowerText.startsWith(g)) && lowerText.length < 15)) {
+    
+    // 1. Direct greetings and small talk
+    const greetings = ['hi', 'hello', 'hey', 'help', 'who are you', 'what can you do', 
+      'good morning', 'good afternoon', 'good evening', 'thanks', 'thank you', 
+      'ok', 'okay', 'yes', 'no', 'bye', 'goodbye', 'sure'];
+    
+    if (greetings.includes(lowerText) || (greetings.some(g => lowerText.startsWith(g)) && lowerText.length < 20)) {
       return res.json({
         type: 'text',
-        text: 'Hello! I am your AI SOC Assistant. I am directly connected to the Wazuh SIEM Indexer. You can ask me to "check this IP 190.03.12.56", "find brute force attacks", or "show recent vulnerabilities".'
+        text: 'Hello! I am your AI SOC Assistant powered by Cisco Foundation Sec 8B. I am directly connected to the Wazuh SIEM Indexer. Here is what I can do:\n\n• **Check an IP:** "Check this IP 190.03.12.56"\n• **Find attacks:** "Show me brute force attacks"\n• **Count alerts:** "How many authentication failures today?"\n• **Find vulnerabilities:** "Show recent CVEs"\n• **Investigate users:** "Show login failures for admin"'
+      });
+    }
+
+    // 2. Catch general conversational phrases that are NOT security queries
+    const conversationalPatterns = [
+      'i need', 'can you', 'could you', 'please help', 'assist me', 'i want',
+      'tell me about yourself', 'what are you', 'how do you work', 'are you',
+      'do you', 'i have a question', 'i was wondering', 'how are you',
+      'what is your', 'who made you', 'explain', 'teach me'
+    ];
+    
+    const hasSecurityKeyword = /\b(ip|alert|attack|brute|fail|login|auth|cve|vulnerab|threat|malware|firewall|intrusion|port|scan|agent|log|event|wazuh|siem|rule|mitre|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/i.test(lowerText);
+    
+    if (conversationalPatterns.some(p => lowerText.includes(p)) && !hasSecurityKeyword) {
+      return res.json({
+        type: 'text',
+        text: 'I am your AI SOC Assistant, and I am here to help! I specialize in analyzing your Wazuh SIEM security data in real-time. Try asking me something like:\n\n• "Check this IP address 41.203.12.56"\n• "Show me the total authentication failures for the last 24 hours"\n• "What are the latest vulnerability alerts?"\n• "Find brute force attacks targeting our network"\n\nJust type your security question and I will query the live database for you!'
       });
     }
 
@@ -150,7 +182,7 @@ TOTAL MATCHES: ${totalHits}
 SAMPLE LOGS:
 ${JSON.stringify(minifiedLogs)}`;
       
-      const llamaSummary = await askLLM(summaryPrompt, systemInstruction);
+      const llamaSummary = await askLLM(summaryPrompt, systemInstruction, history);
       
       if (llamaSummary) {
         summary = llamaSummary;

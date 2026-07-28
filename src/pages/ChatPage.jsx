@@ -62,10 +62,20 @@ export default function ChatPage({ onLogout }) {
         ? 'http://localhost:3002/api/chat' 
         : `http://${window.location.hostname}:3002/api/chat`;
 
+      // Build conversation history for context (last 10 messages)
+      const history = messages
+        .filter(m => m.type === 'text' || m.type === 'agent_response')
+        .slice(-10)
+        .map(m => ({
+          role: m.role || 'assistant',
+          content: m.text || m.summary || ''
+        }))
+        .filter(m => m.content);
+
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, sources: selectedSources })
+        body: JSON.stringify({ text, sources: selectedSources, history })
       });
       
       const data = await response.json();
