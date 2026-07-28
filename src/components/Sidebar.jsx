@@ -1,26 +1,58 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings } from 'lucide-react';
+import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings, Search, Bug, Globe, Key, Trash2 } from 'lucide-react';
 import './Sidebar.css';
 
 const QUICK_PROMPTS = [
-  { label: 'Recent high-severity alerts', prompt: 'Show me the most recent high-severity alerts.', icon: <ShieldAlert size={14} className="text-danger" /> },
-  { label: 'Alert Trends (Chart)', prompt: '/stats alerts', icon: <Activity size={14} className="text-warning" /> },
-  { label: 'Disconnected agents', prompt: 'Which agents are currently disconnected?', icon: <Users size={14} className="text-info" /> },
-  { label: 'Critical vulnerabilities', prompt: 'List any hosts with unpatched critical vulnerabilities.', icon: <Terminal size={14} className="text-danger" /> },
-  { label: 'Manager health', prompt: 'What is the current status of the Wazuh manager?', icon: <Server size={14} className="text-success" /> },
+  { label: 'Authentication failures (24h)', prompt: 'Show me all authentication failures in the last 24 hours', icon: <Key size={14} className="text-danger" /> },
+  { label: 'Brute force attacks', prompt: 'Find all brute force login attempts on the network', icon: <ShieldAlert size={14} className="text-danger" /> },
+  { label: 'Top attacking IPs', prompt: 'What are the top source IPs generating alerts today?', icon: <Globe size={14} className="text-warning" /> },
+  { label: 'Critical CVE vulnerabilities', prompt: 'List all hosts with unpatched critical CVE vulnerabilities', icon: <Bug size={14} className="text-danger" /> },
+  { label: 'Suspicious SSH activity', prompt: 'Show me all SSH login failures and suspicious SSH activity', icon: <Terminal size={14} className="text-warning" /> },
 ];
 
-export default function Sidebar({ isOpen, onClose, onPromptClick }) {
+const RECENT_KEY = 'gbb_recent_chats';
+const MAX_RECENT = 5;
+
+function getRecent() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
+  } catch { return []; }
+}
+
+function saveRecent(list) {
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+}
+
+export default function Sidebar({ isOpen, onClose, onPromptClick, lastUserPrompt }) {
   const [width, setWidth] = useState(280);
+  const [recentChats, setRecentChats] = useState(getRecent);
   const isResizing = useRef(false);
+
+  // When a new user prompt comes in, add it to recent (FIFO: 6th replaces 1st)
+  useEffect(() => {
+    if (!lastUserPrompt || !lastUserPrompt.trim()) return;
+    setRecentChats(prev => {
+      const trimmed = lastUserPrompt.trim();
+      // Don't add duplicates
+      const filtered = prev.filter(p => p !== trimmed);
+      const updated = [...filtered, trimmed].slice(-MAX_RECENT);
+      saveRecent(updated);
+      return updated;
+    });
+  }, [lastUserPrompt]);
+
+  function clearRecent() {
+    setRecentChats([]);
+    localStorage.removeItem(RECENT_KEY);
+  }
 
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isResizing.current) return;
       let newWidth = e.clientX;
-      if (newWidth < 220) newWidth = 220; // Min width
-      if (newWidth > 600) newWidth = 600; // Max width
+      if (newWidth < 220) newWidth = 220;
+      if (newWidth > 600) newWidth = 600;
       setWidth(newWidth);
     };
 
@@ -43,7 +75,7 @@ export default function Sidebar({ isOpen, onClose, onPromptClick }) {
     e.preventDefault();
     isResizing.current = true;
     document.body.style.cursor = 'col-resize';
-    document.body.classList.add('is-resizing'); // Prevent text selection while dragging
+    document.body.classList.add('is-resizing');
   };
 
   return (
@@ -60,7 +92,7 @@ export default function Sidebar({ isOpen, onClose, onPromptClick }) {
              whileHover={{ scale: 1.02 }}
              whileTap={{ scale: 0.98 }}
              onClick={() => {
-                // Reset chat logic placeholder
+                window.location.reload();
              }}
            >
              <Plus size={18} />
@@ -69,9 +101,9 @@ export default function Sidebar({ isOpen, onClose, onPromptClick }) {
         </div>
 
         <div className="sidebar-section">
-          <h3 className="sidebar-heading">Quick queries</h3>
+          <h3 className="sidebar-heading">Quick Queries</h3>
           <div className="quick-prompts">
-            {QUICK_PROMPTS.map((q, i) => (
+            {QUICK_PROMPTS.map((q) => (
               <motion.button
                 key={q.label}
                 className="quick-prompt-btn"
@@ -92,37 +124,19 @@ export default function Sidebar({ isOpen, onClose, onPromptClick }) {
         <div className="sidebar-divider" />
 
         <div className="sidebar-section">
-          <h3 className="sidebar-heading">Environment</h3>
-          <div className="env-stats">
-            <div className="env-stat-row">
-              <span className="env-label">Agents:</span>
-              <span className="env-value">12</span>
-            </div>
-            <div className="env-stat-row">
-              <span className="env-label">Active:</span>
-              <span className="env-value">11</span>
-            </div>
-            <div className="env-stat-row">
-              <span className="env-label">Disconnected:</span>
-              <span className="env-value text-danger">1</span>
-            </div>
-            <div className="env-stat-row">
-              <span className="env-label">Manager:</span>
-              <span className="env-value text-success">v4.9.0</span>
-            </div>
+          <div className="sidebar-heading-row">
+            <h3 className="sidebar-heading">Recent Chats</h3>
+            {recentChats.length > 0 && (
+              <button className="clear-recent-btn" onClick={clearRecent} title="Clear recent chats">
+                <Trash2 size={13} />
+              </button>
+            )}
           </div>
-        </div>
-
-        <div className="sidebar-divider" />
-
-        <div className="sidebar-section">
-          <h3 className="sidebar-heading">Recent</h3>
           <div className="recent-list">
-            {[
-              'SSH brute force attempts',
-              'Outdated glibc packages',
-              'Status of db-srv-01'
-            ].map((item, idx) => (
+            {recentChats.length === 0 && (
+              <div className="recent-empty">No recent chats yet</div>
+            )}
+            {[...recentChats].reverse().map((item, idx) => (
               <motion.button
                 key={idx}
                 className="recent-item-btn"

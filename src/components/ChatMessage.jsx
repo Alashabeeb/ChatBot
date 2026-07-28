@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import './ChatMessage.css';
 
@@ -22,6 +23,23 @@ export default function ChatMessage({ message }) {
 }
 
 export function TypingDots() {
+  const phases = [
+    '🔍 Querying SIEM database…',
+    '📡 Fetching threat intelligence…',
+    '🧠 Analyzing threat patterns…',
+    '🛡️ Correlating security events…',
+    '📊 Generating threat report…',
+  ];
+
+  const [phaseIndex, setPhaseIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhaseIndex((prev) => (prev + 1) % phases.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <motion.div
       className="chat-message-row row-bot"
@@ -30,15 +48,21 @@ export function TypingDots() {
       exit={{ opacity: 0 }}
     >
       <div className="chat-message-container">
-        <div className="chat-content content-bot typing-container">
-          {[0, 1, 2].map((i) => (
+        <div className="chat-content content-bot">
+          <span className="assistant-label">GBB Assistant</span>
+          <div className="typing-status">
             <motion.span
-              key={i}
-              className="typing-dot"
-              animate={{ y: [0, -3, 0], opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15 }}
-            />
-          ))}
+              key={phaseIndex}
+              className="typing-status-text"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.3 }}
+            >
+              {phases[phaseIndex]}
+            </motion.span>
+            <span className="typing-spinner" />
+          </div>
         </div>
       </div>
     </motion.div>

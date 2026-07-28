@@ -7,6 +7,20 @@ function extractFields(log) {
   const rule = log.rule || {};
   const data = log.data || {};
   const agent = log.agent || {};
+  const predecoder = log.predecoder || {};
+  const decoder = log.decoder || {};
+
+  // Deep user extraction — Wazuh stores users in many different places
+  const user = data.srcuser || data.dstuser || data.user || data.win?.eventdata?.targetUserName 
+    || data.win?.eventdata?.subjectUserName || data.audit?.auid || data.uid 
+    || predecoder.user || log.syscheck?.uname || '—';
+
+  // Deep email extraction — check common mail-related fields
+  const email = data.email || data.mail || data.recipient || data.sender 
+    || data.win?.eventdata?.targetUserName?.includes?.('@') && data.win.eventdata.targetUserName
+    || data.srcuser?.includes?.('@') && data.srcuser
+    || data.dstuser?.includes?.('@') && data.dstuser
+    || '—';
 
   return {
     time: log['@timestamp'] || log.timestamp || null,
@@ -17,9 +31,9 @@ function extractFields(log) {
     mitreIds: rule.mitre?.id || [],
     mitreTechniques: rule.mitre?.technique || [],
     host: agent.name || agent.id || log.manager?.name || '—',
-    srcip: data.srcip || data.src_ip || log.srcip || '—',
-    user: data.srcuser || data.dstuser || data.user || '—',
-    email: data.email || data.mail || data.recipient || data.sender || data.srcuser_email || '—',
+    srcip: data.srcip || data.src_ip || log.srcip || data.win?.eventdata?.ipAddress || '—',
+    user,
+    email,
   };
 }
 

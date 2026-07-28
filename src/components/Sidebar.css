@@ -129,6 +129,45 @@ body.is-resizing {
 }
 
 /* Recent Section */
+.sidebar-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.sidebar-heading-row .sidebar-heading {
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.clear-recent-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.clear-recent-btn:hover {
+  background: var(--bg-hover);
+  color: var(--danger);
+}
+
+.recent-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  font-style: italic;
+}
+
 .recent-list {
   display: flex;
   flex-direction: column;

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown, Square } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ChatMessage, { TypingDots } from '../components/ChatMessage';
 import DataCard from '../components/DataCard';
@@ -19,6 +19,25 @@ const mockChartData = [
   { time: '15:00', alerts: 8 },
 ];
 
+// Truncated summary with "more" / "less" toggle
+function TruncatedSummary({ text, wordLimit = 20 }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  const words = text.split(/\s+/);
+  const isTruncated = words.length > wordLimit;
+  const displayText = !expanded && isTruncated ? words.slice(0, wordLimit).join(' ') + '…' : text;
+  return (
+    <p className="log-modal-subtitle">
+      {displayText}
+      {isTruncated && (
+        <button className="summary-toggle-btn" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'show less' : 'more'}
+        </button>
+      )}
+    </p>
+  );
+}
+
 export default function ChatPage({ onLogout }) {
   const { theme, toggleTheme } = useTheme();
   const [messages, setMessages] = useState([
@@ -35,8 +54,10 @@ export default function ChatPage({ onLogout }) {
   const [selectedSources, setSelectedSources] = useState(['wazuh']);
   const [modalData, setModalData] = useState(null);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
+  const [lastUserPrompt, setLastUserPrompt] = useState('');
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Auto-scroll
   useEffect(() => {
@@ -53,9 +74,7 @@ export default function ChatPage({ onLogout }) {
     }
   }, [input]);
 
-
-
-  async function getBackendReply(text) {
+  async function getBackendReply(text, signal) {
     try {
       // Point to our new Node.js Proxy Server (Port changed to 3002 to avoid conflicts)
       const API_URL = window.location.hostname === 'localhost' 
@@ -75,7 +94,8 @@ export default function ChatPage({ onLogout }) {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, sources: selectedSources, history })
+        body: JSON.stringify({ text, sources: selectedSources, history }),
+        signal
       });
       
       const data = await response.json();
@@ -88,6 +108,12 @@ export default function ChatPage({ onLogout }) {
       
       return data;
     } catch (error) {
+      if (error.name === 'AbortError') {
+        return {
+          type: 'text',
+          text: '⏹️ Prompt response generation was cancelled.'
+        };
+      }
       console.error("Backend Error:", error);
       return {
         type: 'text',
@@ -98,16 +124,29 @@ export default function ChatPage({ onLogout }) {
 
   async function handleSend(overrideText) {
     const text = (overrideText ?? input).trim();
-    if (!text) return;
+    if (!text || isTyping) return;
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setMessages((prev) => [...prev, { role: 'user', type: 'text', text }]);
     setInput('');
     setIsTyping(true);
+    setLastUserPrompt(text);
 
-    const reply = await getBackendReply(text);
+    const reply = await getBackendReply(text, controller.signal);
 
     setIsTyping(false);
+    abortControllerRef.current = null;
     setMessages((prev) => [...prev, { role: 'assistant', ...reply }]);
+  }
+
+  function handleCancel() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsTyping(false);
   }
 
   function handleKeyDown(e) {
@@ -160,6 +199,7 @@ export default function ChatPage({ onLogout }) {
           isOpen={sidebarOpen} 
           onClose={() => setSidebarOpen(false)} 
           onPromptClick={handleSend}
+          lastUserPrompt={lastUserPrompt}
         />
 
         {/* Mobile sidebar overlay */}
@@ -260,14 +300,25 @@ export default function ChatPage({ onLogout }) {
                   placeholder="Ask GBB Security Assistant..."
                   className="composer-textarea"
                 />
-                <button
-                  onClick={() => handleSend()}
-                  className="send-btn"
-                  disabled={!input.trim() || isTyping}
-                  aria-label="Send message"
-                >
-                  <Send size={16} />
-                </button>
+                {isTyping ? (
+                  <button
+                    onClick={handleCancel}
+                    className="send-btn cancel-btn"
+                    aria-label="Cancel prompt generation"
+                    title="Cancel generation"
+                  >
+                    <Square size={14} fill="currentColor" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSend()}
+                    className="send-btn"
+                    disabled={!input.trim()}
+                    aria-label="Send message"
+                  >
+                    <Send size={16} />
+                  </button>
+                )}
               </div>
             </div>
             <div className="composer-footer">
@@ -288,7 +339,7 @@ export default function ChatPage({ onLogout }) {
               <div className="log-modal-header">
                 <div>
                   <h2>Event Details</h2>
-                  <p className="log-modal-subtitle">{modalData.summary}</p>
+                  <TruncatedSummary text={modalData.summary} wordLimit={20} />
                 </div>
                 <button className="icon-btn" onClick={() => setModalData(null)}>
                   <X size={20} />

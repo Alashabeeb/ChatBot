@@ -304,6 +304,15 @@
   cursor: not-allowed;
 }
 
+.cancel-btn {
+  background: var(--danger, #ef4444);
+  color: white;
+}
+
+.cancel-btn:hover {
+  background: #dc2626 !important;
+}
+
 .composer-footer {
   text-align: center;
   font-size: 12px;
@@ -400,6 +409,25 @@
   font-size: 13px;
   color: var(--text-secondary);
   max-width: 640px;
+  line-height: 1.6;
+}
+
+.summary-toggle-btn {
+  display: inline;
+  margin-left: 6px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.summary-toggle-btn:hover {
+  opacity: 0.8;
 }
 
 .log-modal-body {
