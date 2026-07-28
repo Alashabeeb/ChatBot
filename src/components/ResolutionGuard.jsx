@@ -42,7 +42,7 @@ export default function ResolutionGuard({ children }) {
         <MonitorX size={80} style={{ color: 'var(--accent)', marginBottom: '24px' }} />
         <h1 style={{ fontSize: '32px', marginBottom: '16px', fontWeight: 600 }}>Unsupported Resolution</h1>
         <p style={{ fontSize: '18px', color: 'var(--text-secondary)', maxWidth: '600px', lineHeight: 1.6 }}>
-          GBB ChatBot requires a minimum screen resolution of <b>1366 x 768</b>. 
+          SOC ChatBot requires a minimum screen resolution of <b>1366 x 768</b>. 
           <br /><br />
           Your current window width is <b>{window.innerWidth}px</b>. Please maximize your browser window or switch to a device with a larger display to continue.
         </p>

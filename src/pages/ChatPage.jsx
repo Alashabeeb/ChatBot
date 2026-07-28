@@ -44,7 +44,7 @@ export default function ChatPage({ onLogout }) {
     {
       role: 'assistant',
       type: 'text',
-      text: 'Welcome to GBB ChatBot. I am connected to the manager. Ask me about agent status, recent alerts, or run /stats for trends.',
+      text: 'Welcome to SOC ChatBot. I am connected to the manager. Ask me about agent status, recent alerts, or run /stats for trends.',
       timestamp: new Date().toISOString()
     },
   ]);
@@ -171,7 +171,7 @@ export default function ChatPage({ onLogout }) {
           <div className="header-brand">
             <div className="header-logo"><Shield size={16} /></div>
             <div className="header-titles">
-              <h1>GBB ChatBot</h1>
+              <h1>SOC ChatBot</h1>
               <span>Security Assistant</span>
             </div>
           </div>
@@ -297,7 +297,7 @@ export default function ChatPage({ onLogout }) {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask GBB Security Assistant..."
+                  placeholder="Ask SOC Security Assistant..."
                   className="composer-textarea"
                 />
                 {isTyping ? (
@@ -322,7 +322,7 @@ export default function ChatPage({ onLogout }) {
               </div>
             </div>
             <div className="composer-footer">
-              GBB AI can make mistakes. Please verify critical security alerts.
+              SOC AI can make mistakes. Please verify critical security alerts.
             </div>
           </div>
         </main>

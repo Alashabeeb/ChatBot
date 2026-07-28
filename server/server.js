@@ -98,32 +98,67 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // ==========================================
-    // INSTANT INTENT & ENTITY EXTRACTION (NO LLAMA DELAY)
+    // INSTANT INTENT & ENTITY EXTRACTION
     // ==========================================
     let intent = 'alerts'; // Default
-    if (lowerText.includes('brute') || lowerText.includes('fail') || lowerText.includes('login')) intent = 'brute_force';
+    if (lowerText.includes('brute') || lowerText.includes('fail') || lowerText.includes('login') || lowerText.includes('auth')) intent = 'brute_force';
     else if (lowerText.includes('vulnerab') || lowerText.includes('cve')) intent = 'vulnerabilities';
 
     // Extract IPv4 addresses
     const ipRegex = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
     const extractedIPs = text.match(ipRegex) || [];
 
+    // Extract Dynamic Time Window (Default: Last 24 Hours)
+    let timeRange = 'now-24h';
+    let timeLabel = 'Last 24 Hours';
+
+    if (/\b(1h|1\s*hr|1\s*hour|past\s*hour|last\s*hour|60\s*m|60\s*min)\b/i.test(lowerText)) {
+      timeRange = 'now-1h';
+      timeLabel = 'Past 1 Hour';
+    } else if (/\b(30m|30\s*min|30\s*mins|past\s*30\s*min)\b/i.test(lowerText)) {
+      timeRange = 'now-30m';
+      timeLabel = 'Past 30 Minutes';
+    } else if (/\b(12h|12\s*hr|12\s*hours)\b/i.test(lowerText)) {
+      timeRange = 'now-12h';
+      timeLabel = 'Past 12 Hours';
+    } else if (/\b(7d|7\s*days|week|past\s*week|last\s*week)\b/i.test(lowerText)) {
+      timeRange = 'now-7d';
+      timeLabel = 'Past 7 Days';
+    } else if (/\b(30d|30\s*days|month|past\s*month|last\s*month)\b/i.test(lowerText)) {
+      timeRange = 'now-30d';
+      timeLabel = 'Past 30 Days';
+    } else if (/\b(24h|24\s*hr|24\s*hours|today|last\s*24\s*hours)\b/i.test(lowerText)) {
+      timeRange = 'now-24h';
+      timeLabel = 'Last 24 Hours';
+    }
+
+    // Strip English filler words to prevent OpenSearch from matching unrelated logs
+    const stopWords = /\b(what|is|the|for|past|last|show|me|get|total|find|check|count|all|any|recent|hours|hour|hr|hrs|mins|min|days|day|today|auth|authentication|failures|failure|login|logins|attack|attacks|vulnerability|vulnerabilities)\b/gi;
+    const cleanedSearchText = lowerText.replace(stopWords, '').replace(/\s+/g, ' ').trim();
+
     // ==========================================
-    // BUILD HIGHLY ACCURATE OPENSEARCH QUERY
+    // BUILD HIGHLY ACCURATE OPENSEARCH QUERY WITH TIME FILTER
     // ==========================================
     let esQuery = {
-      query: { bool: { must: [] } },
+      query: {
+        bool: {
+          must: [],
+          filter: [
+            { range: { "@timestamp": { gte: timeRange } } }
+          ]
+        }
+      },
       sort: [{ "@timestamp": { order: "desc" } }],
-      size: 50, // Max safe limit for 8K token context window. Do not exceed this or the LLM throws HTTP 400!
-      track_total_hits: true // Force OpenSearch to count past 10,000 to infinity!
+      size: 50, // Max safe limit for 8K token context window
+      track_total_hits: true // Force OpenSearch to count exact total
     };
 
     // If an IP was found, force OpenSearch to only return logs containing this IP!
     if (extractedIPs.length > 0) {
       esQuery.query.bool.must.push({ query_string: { query: extractedIPs[0] } });
-    } else {
-      // If no IP, just search their whole sentence text
-      esQuery.query.bool.must.push({ query_string: { query: text, default_operator: "OR" } });
+    } else if (cleanedSearchText.length > 2) {
+      // Search only meaningful keywords left after stripping stop words
+      esQuery.query.bool.must.push({ query_string: { query: cleanedSearchText, default_operator: "AND" } });
     }
 
     // Add specific SIEM filters
@@ -145,19 +180,18 @@ app.post('/api/chat', async (req, res) => {
     // Extract true total from OpenSearch
     const totalHits = osResponse.data.hits.total.value || rawData.length;
     
-    let sourceLabel = `wazuh-indexer /wazuh-alerts-*`;
+    let sourceLabel = `wazuh-indexer /wazuh-alerts-* [${timeLabel}]`;
     if (extractedIPs.length > 0) sourceLabel += ` (Target: ${extractedIPs[0]})`;
 
     // ==========================================
-    // SINGLE LLAMA 3 SUMMARIZATION
+    // LLM SUMMARIZATION WITH TIME WINDOW CONSTRAINTS
     // ==========================================
     let summary = '';
     
     if (rawData.length === 0) {
-      // Fast path if nothing was found! No need to ask Llama.
       summary = extractedIPs.length > 0 
-        ? `I scanned the SIEM logs, but I did not find any alerts related to the IP address ${extractedIPs[0]}.` 
-        : `I could not find any alerts matching your request in the SIEM database.`;
+        ? `I scanned the SIEM logs for the ${timeLabel}, but found zero alerts for IP ${extractedIPs[0]}. You can ask for a wider window (e.g. "past 7 days").` 
+        : `I searched the database for the ${timeLabel}, but found zero matching alerts. You can try adjusting the time range (e.g. "past 7 days").`;
     } else {
       // 1. Minify logs to prevent JSON breakage and token bloat
       const minifiedLogs = rawData.map(log => ({
@@ -169,17 +203,18 @@ app.post('/api/chat', async (req, res) => {
       }));
 
       // 2. Strict RAG System Prompt
-      const systemInstruction = `You are a SIEM AI Analyst. Rules:
-1. The "TOTAL MATCHES" number is the exact, verified count from the database. Always use it as fact.
-2. The "SAMPLE LOGS" below are a representative snapshot. Analyze them for patterns (top IPs, attack types, affected users).
-3. Never say "based on the 50 logs" or "I can only see X logs". Speak as if you analyzed the full dataset.
-4. Answer the user's question directly and comprehensively.`;
+      const systemInstruction = `You are a strict SIEM AI Analyst. Rules:
+1. The "TOTAL MATCHES" number is the exact, verified count for the ${timeLabel}. Always state this count and explicitly state that the data is from the ${timeLabel}.
+2. Inform the user they can extend the time window (e.g., "past 7 days" or "past 30 days") or narrow it (e.g., "past 30 mins").
+3. Use the SAMPLE LOGS to highlight patterns (top IPs, attack types, affected users).
+4. Never say "based on 50 logs". Speak as if analyzing the complete dataset for this time window.`;
 
-      // 3. Inject True Count into Prompt
+      // 3. Inject True Count and Time Window into Prompt
       const summaryPrompt = `User asked: "${text}"
 
-TOTAL MATCHES: ${totalHits}
-SAMPLE LOGS:
+TIME WINDOW ANALYZED: ${timeLabel} (${timeRange})
+EXACT TOTAL MATCHES IN ${timeLabel.toUpperCase()}: ${totalHits}
+SAMPLE LOGS (TOP ${minifiedLogs.length}):
 ${JSON.stringify(minifiedLogs)}`;
       
       const llamaSummary = await askLLM(summaryPrompt, systemInstruction, history);

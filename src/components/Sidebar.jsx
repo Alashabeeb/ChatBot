@@ -11,7 +11,7 @@ const QUICK_PROMPTS = [
   { label: 'Suspicious SSH activity', prompt: 'Show me all SSH login failures and suspicious SSH activity', icon: <Terminal size={14} className="text-warning" /> },
 ];
 
-const RECENT_KEY = 'gbb_recent_chats';
+const RECENT_KEY = 'soc_recent_chats';
 const MAX_RECENT = 5;
 
 function getRecent() {
@@ -29,14 +29,17 @@ export default function Sidebar({ isOpen, onClose, onPromptClick, lastUserPrompt
   const [recentChats, setRecentChats] = useState(getRecent);
   const isResizing = useRef(false);
 
-  // When a new user prompt comes in, add it to recent (FIFO: 6th replaces 1st)
+  // Save clean conversation session title to Recent Chats (FIFO max 5)
   useEffect(() => {
     if (!lastUserPrompt || !lastUserPrompt.trim()) return;
     setRecentChats(prev => {
-      const trimmed = lastUserPrompt.trim();
-      // Don't add duplicates
-      const filtered = prev.filter(p => p !== trimmed);
-      const updated = [...filtered, trimmed].slice(-MAX_RECENT);
+      let title = lastUserPrompt.trim();
+      // Capitalize first letter and format cleanly
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+      if (title.length > 45) title = title.slice(0, 42) + '...';
+      
+      const filtered = prev.filter(p => p !== title);
+      const updated = [...filtered, title].slice(-MAX_RECENT);
       saveRecent(updated);
       return updated;
     });

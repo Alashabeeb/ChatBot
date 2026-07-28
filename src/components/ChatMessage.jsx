@@ -14,7 +14,7 @@ export default function ChatMessage({ message }) {
     >
       <div className="chat-message-container">
         <div className={`chat-content ${isUser ? 'content-user' : 'content-bot'}`}>
-          {!isUser && <span className="assistant-label">GBB Assistant</span>}
+          {!isUser && <span className="assistant-label">SOC Assistant</span>}
           <div className={isUser ? 'message-bubble' : 'message-text'}>{message.text}</div>
         </div>
       </div>
@@ -49,7 +49,7 @@ export function TypingDots() {
     >
       <div className="chat-message-container">
         <div className="chat-content content-bot">
-          <span className="assistant-label">GBB Assistant</span>
+          <span className="assistant-label">SOC Assistant</span>
           <div className="typing-status">
             <motion.span
               key={phaseIndex}
