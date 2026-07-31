@@ -372,6 +372,7 @@ ${JSON.stringify(rawData)}`;
 
       // 2. Strict RAG System Prompt
       const systemInstruction = `You are an elite AI SOC Security Analyst. Your job is to analyze Wazuh SIEM logs and provide highly refined, actionable insights. Rules:
+0. YOU MUST START YOUR ENTIRE RESPONSE WITH EXACTLY THIS TEXT: "**[UPDATED AGENT V2 ACTIVE]** "
 1. The "TOTAL MATCHES" number is the exact, verified count for the ${timeLabel}. Always state this count and explicitly state that the data is from the ${timeLabel}.
 2. Use the SAMPLE LOGS to deeply analyze the situation. Do NOT just mechanically list IPs. Explain WHAT the attack or pattern is, HOW it works, and WHY it is happening. Provide a detailed and refined explanation of the security context.
 3. Provide clear, actionable REMEDIATION STEPS (e.g., "Block these IPs", "Investigate this user account").
