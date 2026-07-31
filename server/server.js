@@ -138,31 +138,50 @@ app.post('/api/chat', async (req, res) => {
 
     // Extract Dynamic Time Window (Default: Last 24 Hours)
     let timeRange = 'now-24h';
+    let lteTime = null;
     let timeLabel = 'Last 24 Hours';
+    let chronoTimeStr = '';
 
-    if (/\b(1h|1\s*hr|1\s*hour|past\s*hour|last\s*hour|60\s*m|60\s*min)\b/i.test(lowerText)) {
-      timeRange = 'now-1h';
-      timeLabel = 'Past 1 Hour';
-    } else if (/\b(30m|30\s*min|30\s*mins|past\s*30\s*min)\b/i.test(lowerText)) {
-      timeRange = 'now-30m';
-      timeLabel = 'Past 30 Minutes';
-    } else if (/\b(12h|12\s*hr|12\s*hours)\b/i.test(lowerText)) {
-      timeRange = 'now-12h';
-      timeLabel = 'Past 12 Hours';
-    } else if (/\b(7d|7\s*days|week|past\s*week|last\s*week)\b/i.test(lowerText)) {
-      timeRange = 'now-7d';
-      timeLabel = 'Past 7 Days';
-    } else if (/\b(30d|30\s*days|month|past\s*month|last\s*month)\b/i.test(lowerText)) {
-      timeRange = 'now-30d';
-      timeLabel = 'Past 30 Days';
-    } else if (/\b(24h|24\s*hr|24\s*hours|today|last\s*24\s*hours)\b/i.test(lowerText)) {
-      timeRange = 'now-24h';
-      timeLabel = 'Last 24 Hours';
+    const chrono = require('chrono-node');
+    const parsedDates = chrono.parse(text);
+
+    if (parsedDates.length > 0) {
+      const result = parsedDates[0];
+      timeRange = result.start.date().toISOString();
+      if (result.end) {
+        lteTime = result.end.date().toISOString();
+      }
+      timeLabel = result.text;
+      chronoTimeStr = result.text.toLowerCase();
+    } else {
+      if (/\b(1h|1\s*hr|1\s*hour|past\s*hour|last\s*hour|60\s*m|60\s*min)\b/i.test(lowerText)) {
+        timeRange = 'now-1h';
+        timeLabel = 'Past 1 Hour';
+      } else if (/\b(30m|30\s*min|30\s*mins|past\s*30\s*min)\b/i.test(lowerText)) {
+        timeRange = 'now-30m';
+        timeLabel = 'Past 30 Minutes';
+      } else if (/\b(12h|12\s*hr|12\s*hours)\b/i.test(lowerText)) {
+        timeRange = 'now-12h';
+        timeLabel = 'Past 12 Hours';
+      } else if (/\b(7d|7\s*days|week|past\s*week|last\s*week)\b/i.test(lowerText)) {
+        timeRange = 'now-7d';
+        timeLabel = 'Past 7 Days';
+      } else if (/\b(30d|30\s*days|month|past\s*month|last\s*month)\b/i.test(lowerText)) {
+        timeRange = 'now-30d';
+        timeLabel = 'Past 30 Days';
+      } else if (/\b(24h|24\s*hr|24\s*hours|today|last\s*24\s*hours)\b/i.test(lowerText)) {
+        timeRange = 'now-24h';
+        timeLabel = 'Last 24 Hours';
+      }
     }
 
     // Strip ONLY grammatical/question filler words and time phrases (PRESERVE security terms like auth, failure, login, cve, ip)
-    const stopWords = /\b(what|is|are|the|for|past|last|show|me|get|give|total|find|check|count|many|how|all|any|recent|hours|hour|hr|hrs|mins|min|minutes|days|day|today|please|can|you|could)\b/gi;
-    const cleanedSearchText = lowerText.replace(stopWords, '').replace(/\s+/g, ' ').trim();
+    const stopWords = /\b(what|is|are|the|for|past|last|show|me|get|give|total|find|check|count|many|how|all|any|recent|hours|hour|hr|hrs|mins|min|minutes|days|day|today|yesterday|from|to|pm|am|please|can|you|could)\b/gi;
+    let cleanedSearchText = lowerText.replace(stopWords, '');
+    if (chronoTimeStr) {
+      cleanedSearchText = cleanedSearchText.replace(chronoTimeStr, '');
+    }
+    cleanedSearchText = cleanedSearchText.replace(/\s+/g, ' ').trim();
 
     // ==========================================
     // WAZUH SERVER API (Agents / Manager Status)
@@ -238,12 +257,15 @@ ${JSON.stringify(rawData)}`;
     // ==========================================
     // BUILD HIGHLY ACCURATE OPENSEARCH QUERY WITH TIME FILTER
     // ==========================================
+    const timeFilter = { gte: timeRange };
+    if (lteTime) timeFilter.lte = lteTime;
+
     let esQuery = {
       query: {
         bool: {
           must: [],
           filter: [
-            { range: { "@timestamp": { gte: timeRange } } }
+            { range: { "@timestamp": timeFilter } }
           ]
         }
       },
