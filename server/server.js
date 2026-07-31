@@ -136,6 +136,17 @@ app.post('/api/chat', async (req, res) => {
     const ipRegex = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
     const extractedIPs = text.match(ipRegex) || [];
 
+    // Extract Severity Level Constraint
+    let minSeverity = null;
+    const severityMatch = lowerText.match(/(?:level|severity)\s*(\d+)(?:\s*(?:and|or)?\s*(?:above|higher|up|\+))?/i);
+    if (severityMatch) {
+      minSeverity = parseInt(severityMatch[1], 10);
+    } else if (/\bsevere\b/i.test(lowerText) || /\bhigh severity\b/i.test(lowerText)) {
+      minSeverity = 7; // Wazuh level 7 is 'High'
+    } else if (/\bcritical\b/i.test(lowerText)) {
+      minSeverity = 12; // Wazuh level 12 is 'Critical'
+    }
+
     // Extract Dynamic Time Window (Default: Last 24 Hours)
     let timeRange = 'now-24h';
     let lteTime = null;
@@ -176,7 +187,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Strip ONLY grammatical/question filler words and time phrases (PRESERVE security terms like auth, failure, login, cve, ip)
-    const stopWords = /\b(what|is|are|the|for|past|last|show|me|get|give|total|find|check|count|many|how|all|any|recent|hours|hour|hr|hrs|mins|min|minutes|days|day|today|yesterday|from|to|pm|am|please|can|you|could)\b/gi;
+    const stopWords = /\b(what|is|are|the|for|past|last|show|me|get|give|total|find|check|count|many|how|all|any|recent|hours|hour|hr|hrs|mins|min|minutes|days|day|today|yesterday|from|to|pm|am|please|can|you|could|level|severity|severe|critical|high|above|higher|up)\b/gi;
     let cleanedSearchText = lowerText.replace(stopWords, '');
     if (chronoTimeStr) {
       cleanedSearchText = cleanedSearchText.replace(chronoTimeStr, '');
@@ -274,6 +285,10 @@ ${JSON.stringify(rawData)}`;
       track_total_hits: true // Force OpenSearch to count exact total
     };
 
+    if (minSeverity !== null) {
+      esQuery.query.bool.filter.push({ range: { "rule.level": { gte: minSeverity } } });
+    }
+
     // If an IP was found, force OpenSearch to only return logs containing this IP!
     if (extractedIPs.length > 0) {
       esQuery.query.bool.must.push({ multi_match: { query: extractedIPs[0], fields: ["*ip*", "*ip", "ip", "full_log", "agent.ip", "data.win.eventdata.ipAddress"], lenient: true } });
@@ -356,11 +371,12 @@ ${JSON.stringify(rawData)}`;
       }));
 
       // 2. Strict RAG System Prompt
-      const systemInstruction = `You are a strict SIEM AI Analyst. Rules:
+      const systemInstruction = `You are an elite AI SOC Security Analyst. Your job is to analyze Wazuh SIEM logs and provide highly refined, actionable insights. Rules:
 1. The "TOTAL MATCHES" number is the exact, verified count for the ${timeLabel}. Always state this count and explicitly state that the data is from the ${timeLabel}.
-2. Inform the user they can extend the time window (e.g., "past 7 days" or "past 30 days") or narrow it (e.g., "past 30 mins").
-3. Use the SAMPLE LOGS to highlight patterns (top IPs, attack types, affected users).
-4. Never say "based on 50 logs". Speak as if analyzing the complete dataset for this time window.`;
+2. Use the SAMPLE LOGS to deeply analyze the situation. Do NOT just mechanically list IPs. Explain WHAT the attack or pattern is, HOW it works, and WHY it is happening. Provide a detailed and refined explanation of the security context.
+3. Provide clear, actionable REMEDIATION STEPS (e.g., "Block these IPs", "Investigate this user account").
+4. Never say "based on 50 logs". Speak authoritatively as if analyzing the complete dataset for this time window.
+5. If severity constraints (e.g., level 3+) were requested, confirm you are showing the severe incidents.`;
 
       // 3. Inject True Count and Time Window into Prompt
       const summaryPrompt = `User asked: "${text}"
