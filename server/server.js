@@ -254,7 +254,7 @@ ${JSON.stringify(rawData)}`;
           summary: summary,
           raw_logs: rawData,
           total_hits: totalHits,
-          footer: 'Analyzed by foundation-sec-8b'
+          footer: `Analyzed by foundation-sec-8b | Debug: ${timeLabel} (hits: ${totalHits})`
         });
       } catch (error) {
         console.error('Server API Error:', error.message);
