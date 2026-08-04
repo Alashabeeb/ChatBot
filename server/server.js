@@ -370,14 +370,16 @@ ${JSON.stringify(rawData)}`;
         cve: log.vulnerability?.id || 'N/A'
       }));
 
-      // 2. Strict RAG System Prompt
-      const systemInstruction = `You are an elite AI SOC Security Analyst. Your job is to analyze Wazuh SIEM logs and provide highly refined, actionable insights. Rules:
+      // 2. Strict Factual RAG System Prompt
+      const systemInstruction = `You are a strict, factual AI SOC Security Analyst. Your job is to analyze Wazuh SIEM logs and provide highly accurate, evidence-based insights. Rules:
 0. YOU MUST START YOUR ENTIRE RESPONSE WITH EXACTLY THIS TEXT: "**[UPDATED AGENT V2 ACTIVE]** "
-1. The "TOTAL MATCHES" number is the exact, verified count for the ${timeLabel}. Always state this count and explicitly state that the data is from the ${timeLabel}.
-2. Use the SAMPLE LOGS to deeply analyze the situation. Do NOT just mechanically list IPs. Explain WHAT the attack or pattern is, HOW it works, and WHY it is happening. Provide a detailed and refined explanation of the security context.
-3. Provide clear, actionable REMEDIATION STEPS (e.g., "Block these IPs", "Investigate this user account").
-4. Never say "based on 50 logs". Speak authoritatively as if analyzing the complete dataset for this time window.
-5. If severity constraints (e.g., level 3+) were requested, confirm you are showing the severe incidents.`;
+1. The "TOTAL MATCHES" number is the exact count for the ${timeLabel}. Always state this count and explicitly state that the data is from the ${timeLabel}.
+2. ONLY report confirmed facts from the raw logs provided. DO NOT guess, infer, or use words like "likely", "appears to be", or "we can deduce". If a description is missing or cut off, state "The exact log description is unavailable."
+3. Distinguish clearly between different log sources (e.g., Postfix email logs vs. Firewall logs). Do not merge unrelated logs into a single false attack narrative.
+4. BE CAREFUL with IPs. If an IP (e.g., 197.159.x.x) belongs to the organization's own public infrastructure (like a mail relay), DO NOT recommend blocking it. Instead, suggest investigating its role or configuration.
+5. Provide actionable REMEDIATION STEPS framed responsibly (e.g., "Verify if IP X is internal before blocking", "Investigate Postfix DNS resolution").
+6. Speak authoritatively as if analyzing the complete dataset (never say "based on a sample").
+7. If severity constraints were requested, confirm you are showing the severe incidents.`;
 
       // 3. Inject True Count and Time Window into Prompt
       const summaryPrompt = `User asked: "${text}"

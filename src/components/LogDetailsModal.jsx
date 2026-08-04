@@ -204,8 +204,8 @@ export default function LogDetailsModal({ logs = [], source, totalHits }) {
                   </tr>
                   {isOpen && (
                     <tr className="raw-row">
-                      <td colSpan={8}>
-                        <pre>{JSON.stringify(p.raw, null, 2)}</pre>
+                      <td colSpan={8} style={{ padding: 0 }}>
+                        <HumanReadableLog log={p.raw} />
                       </td>
                     </tr>
                   )}
@@ -244,6 +244,47 @@ function OffenderColumn({ title, items, mono }) {
             <div className="offender-bar-fill" style={{ width: `${(count / max) * 100}%` }} />
           </div>
           <span className="offender-count">{count}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HumanReadableLog({ log }) {
+  const sections = [];
+  const rootPrimitives = {};
+
+  if (!log || typeof log !== 'object') {
+    return <div className="human-readable-log"><pre>{String(log)}</pre></div>;
+  }
+
+  Object.entries(log).forEach(([key, value]) => {
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      sections.push({ name: key, data: value });
+    } else {
+      rootPrimitives[key] = value;
+    }
+  });
+
+  if (Object.keys(rootPrimitives).length > 0) {
+    sections.unshift({ name: 'General', data: rootPrimitives });
+  }
+
+  return (
+    <div className="human-readable-log">
+      {sections.map((section, idx) => (
+        <div className="hr-section" key={idx}>
+          <div className="hr-section-title">{section.name.replace(/_/g, ' ')}</div>
+          <div className="hr-grid">
+            {Object.entries(section.data).map(([k, v]) => (
+              <div className="hr-item" key={k}>
+                <span className="hr-key">{k.replace(/_/g, ' ')}</span>
+                <span className="hr-value">
+                  {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       ))}
     </div>

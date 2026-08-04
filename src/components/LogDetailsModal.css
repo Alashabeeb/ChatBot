@@ -256,3 +256,58 @@
     min-width: 640px;
   }
 }
+
+/* ---------- Human Readable Log Viewer ---------- */
+.human-readable-log {
+  padding: 16px 24px;
+  background: var(--bg-tertiary);
+  margin: 0;
+}
+
+.hr-section {
+  margin-bottom: 20px;
+}
+
+.hr-section:last-child {
+  margin-bottom: 0;
+}
+
+.hr-section-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  text-transform: capitalize;
+  border-bottom: 1px solid var(--border-secondary);
+  padding-bottom: 6px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.hr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px 24px;
+}
+
+.hr-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hr-key {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.hr-value {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-word;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
