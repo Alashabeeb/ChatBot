@@ -181,13 +181,15 @@ export default function ChatPage({ onLogout }) {
     setIsTyping(false);
     abortControllerRef.current = null;
     
-    const finalMessages = [...newMessages, { role: 'assistant', ...reply }];
+    // Add isNew flag so the ChatMessage knows to apply Typewriter effect
+    const finalMessages = [...newMessages, { role: 'assistant', isNew: true, ...reply }];
     setMessages(finalMessages);
 
-    // Save final messages to session
+    // Save final messages to session, stripping isNew so it doesn't re-animate on reload/session switch
     if (currentSessionId) {
       setSessions(prev => {
-        const updated = prev.map(s => s.id === currentSessionId ? { ...s, messages: finalMessages } : s);
+        const sessionMessages = finalMessages.map(m => ({ ...m, isNew: false }));
+        const updated = prev.map(s => s.id === currentSessionId ? { ...s, messages: sessionMessages } : s);
         saveSessions(updated);
         return updated;
       });
@@ -312,7 +314,7 @@ export default function ChatPage({ onLogout }) {
                 )}
                 {m.type === 'agent_response' && (
                   <div className="agent-response-card">
-                    <ChatMessage message={{ role: 'assistant', text: m.summary }} />
+                    <ChatMessage message={{ role: 'assistant', text: m.summary, isNew: m.isNew }} />
                     <div className="agent-response-actions">
                       <button 
                         className="view-logs-btn"
