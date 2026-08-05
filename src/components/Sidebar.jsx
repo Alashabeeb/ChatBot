@@ -106,18 +106,55 @@ export default function Sidebar({ isOpen, onClose, onPromptClick, sessions = [],
               <div className="recent-empty">No recent chats yet</div>
             )}
             {sessions.map((session) => (
-              <motion.button
+              <motion.div
                 key={session.id}
-                className={`recent-item-btn ${session.id === activeSessionId ? 'active-session' : ''}`}
-                onClick={() => {
-                  onSelectSession(session.id);
-                  if (window.innerWidth < 768) onClose();
-                }}
-                whileHover={{ x: 2 }}
+                className={`recent-item-wrapper ${session.id === activeSessionId ? 'active-session' : ''}`}
+                style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+                whileHover="hover"
+                initial="initial"
               >
-                <MessageSquare size={14} className={session.id === activeSessionId ? 'text-accent' : 'text-muted'} />
-                <span className="truncate">{session.title}</span>
-              </motion.button>
+                <motion.button
+                  className={`recent-item-btn ${session.id === activeSessionId ? 'active-session' : ''}`}
+                  onClick={() => {
+                    onSelectSession(session.id);
+                    if (window.innerWidth < 768) onClose();
+                  }}
+                  style={{ flex: 1, paddingRight: '28px' }}
+                >
+                  <MessageSquare size={14} className={session.id === activeSessionId ? 'text-accent' : 'text-muted'} />
+                  <span className="truncate">{session.title}</span>
+                </motion.button>
+                
+                <motion.button
+                  className="delete-session-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSession(session.id);
+                  }}
+                  title="Delete chat"
+                  variants={{
+                    initial: { opacity: 0 },
+                    hover: { opacity: 1 }
+                  }}
+                  style={{
+                    position: 'absolute',
+                    right: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '22px',
+                    height: '22px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    borderRadius: '4px'
+                  }}
+                  whileHover={{ backgroundColor: 'var(--bg-hover)', color: 'var(--danger)' }}
+                >
+                  <Trash2 size={13} />
+                </motion.button>
+              </motion.div>
             ))}
           </div>
         </div>

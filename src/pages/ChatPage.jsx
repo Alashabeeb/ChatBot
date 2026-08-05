@@ -220,6 +220,22 @@ export default function ChatPage({ onLogout }) {
     localStorage.removeItem(SESSIONS_KEY);
   }
 
+  function handleDeleteSession(sessionId) {
+    if (isTyping && sessionId === activeSessionId) handleCancel();
+    
+    setSessions(prev => {
+      const updated = prev.filter(s => s.id !== sessionId);
+      saveSessions(updated);
+      return updated;
+    });
+
+    if (activeSessionId === sessionId) {
+      setActiveSessionId(null);
+      setMessages(INITIAL_MESSAGES);
+      setInput('');
+    }
+  }
+
   function handleCancel() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -283,6 +299,7 @@ export default function ChatPage({ onLogout }) {
           onSelectSession={handleSelectSession}
           onNewChat={handleNewChat}
           onClearSessions={handleClearSessions}
+          onDeleteSession={handleDeleteSession}
         />
 
         {/* Mobile sidebar overlay */}
