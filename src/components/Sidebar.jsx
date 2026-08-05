@@ -11,7 +11,7 @@ const QUICK_PROMPTS = [
   { label: 'Suspicious SSH activity', prompt: 'Show me all SSH login failures and suspicious SSH activity', icon: <Terminal size={14} className="text-warning" /> },
 ];
 
-export default function Sidebar({ isOpen, onClose, onPromptClick, sessions = [], activeSessionId, onSelectSession, onNewChat, onClearSessions }) {
+export default function Sidebar({ isOpen, onClose, onPromptClick, sessions = [], activeSessionId, onSelectSession, onNewChat, onClearSessions, onDeleteSession }) {
   const [width, setWidth] = useState(280);
   const isResizing = useRef(false);
 
