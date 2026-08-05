@@ -75,6 +75,16 @@
   50%, 100% { opacity: 0; }
 }
 
+/* Naked mode: raw floating text, no window chrome */
+.terminal-naked {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 2;
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+}
+
 @media (max-width: 1024px) {
   .terminal-panel {
     display: none;

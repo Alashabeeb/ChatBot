@@ -1,14 +1,11 @@
 import { useState } from 'react';
-import { Shield, Eye, EyeOff, ShieldCheck, Activity, Zap } from 'lucide-react';
+import { Shield, ShieldCheck, Activity, Brain, Lock, ArrowRight } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import TerminalFeed from '../components/TerminalFeed';
 import './LoginPage.css';
 
 export default function LoginPage({ onLogin }) {
   const { theme, toggleTheme } = useTheme();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   
   const handleLogin = async (e) => {
@@ -21,6 +18,19 @@ export default function LoginPage({ onLogin }) {
 
   return (
     <div className="gb-login-page">
+      {/* Floating particles */}
+      <div className="gb-particles">
+        {Array.from({ length: 20 }).map((_, i) => (
+          <div key={i} className="gb-particle" style={{
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            animationDelay: `${Math.random() * 8}s`,
+            animationDuration: `${6 + Math.random() * 8}s`,
+          }} />
+        ))}
+      </div>
+
+      {/* Header */}
       <header className="gb-header">
         <div className="gb-logo-container">
            <Shield size={36} className="gb-logo-icon" />
@@ -31,9 +41,11 @@ export default function LoginPage({ onLogin }) {
         </button>
       </header>
 
+      {/* Full-screen main area with orbit as background */}
       <main className="gb-main">
-        {/* Abstract Background Graphic + Live Terminal */}
-        <div className="gb-graphic-container">
+
+        {/* Orbit background — positioned absolutely to fill the entire main area */}
+        <div className="gb-orb-bg">
           <div className="gb-orb-stage">
             <div className="network-orb">
                 <div className="orb-outer-ring"></div>
@@ -66,29 +78,80 @@ export default function LoginPage({ onLogin }) {
               Security
             </div>
           </div>
-
-          <TerminalFeed />
         </div>
-        
-        {/* Login Box */}
-        <div className="gb-login-box-container">
-           <div className="gb-login-box">
-             <div className="gb-box-header">
-               <Shield className="box-header-icon" size={28} />
-               <h2><b>SOC ChatBot</b> Advanced Threat Analytics System</h2>
-             </div>
-             
-             <form className="gb-form" onSubmit={handleLogin}>
-                <button type="submit" className="gb-login-btn" disabled={isLoading}>
-                   {isLoading ? 'Connecting...' : 'Open ChatBot'}
-                </button>
-             </form>
-           </div>
+
+        {/* Naked terminal feed — bottom left, floating raw text */}
+        <div className="gb-terminal-float">
+          <TerminalFeed naked />
+        </div>
+
+        {/* Glassmorphism login card — center right */}
+        <div className="gb-card-container">
+          <div className="gb-glass-card">
+            {/* Shield icon */}
+            <div className="gb-card-icon">
+              <div className="gb-icon-ring" />
+              <Shield size={40} />
+            </div>
+
+            {/* Title */}
+            <h1 className="gb-card-title">SOC ChatBot</h1>
+            <p className="gb-card-subtitle">Advanced Threat Analytics System</p>
+
+            {/* Divider */}
+            <div className="gb-card-divider" />
+
+            {/* Feature badges */}
+            <div className="gb-badge-row">
+              <div className="gb-badge">
+                <Brain size={14} />
+                <span>AI-Powered</span>
+              </div>
+              <div className="gb-badge">
+                <Activity size={14} />
+                <span>Real-time</span>
+              </div>
+              <div className="gb-badge">
+                <ShieldCheck size={14} />
+                <span>24/7 SOC</span>
+              </div>
+            </div>
+
+            {/* Stat cards */}
+            <div className="gb-stats-row">
+              <div className="gb-stat-card">
+                <span className="gb-stat-value">99.9%</span>
+                <span className="gb-stat-label">Uptime</span>
+              </div>
+              <div className="gb-stat-card">
+                <span className="gb-stat-value">24/7</span>
+                <span className="gb-stat-label">Active</span>
+              </div>
+              <div className="gb-stat-card">
+                <span className="gb-stat-value">500+</span>
+                <span className="gb-stat-label">Rules</span>
+              </div>
+            </div>
+
+            {/* Open button */}
+            <form onSubmit={handleLogin}>
+              <button type="submit" className="gb-open-btn" disabled={isLoading}>
+                <span>{isLoading ? 'Connecting...' : 'Open ChatBot'}</span>
+                {!isLoading && <ArrowRight size={18} />}
+                <div className="gb-btn-shimmer" />
+              </button>
+            </form>
+
+            {/* Footer text */}
+            <p className="gb-card-footer">
+              <Lock size={12} />
+              Enterprise-grade security • Connected to Wazuh SIEM
+            </p>
+          </div>
         </div>
       </main>
 
       <footer className="gb-footer">
-        <p>Chrome 85, Firefox 80, Firefox ESR 78 and above browsers are supported. It is recommended to update the version in time. The recommended resolution is 1920 x 1080, and the minimum supported resolution is 1366 x 768.</p>
         <p>Copyright© SOC ChatBot 2016-2026. All rights reserved. <a href="#">Privacy Statement</a></p>
       </footer>
     </div>

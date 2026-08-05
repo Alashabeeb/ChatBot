@@ -22,7 +22,7 @@ const LINE_PAUSE_MS = 550;
 const RESTART_PAUSE_MS = 1800;
 const MAX_VISIBLE_LINES = 7;
 
-export default function TerminalFeed() {
+export default function TerminalFeed({ naked = false }) {
   const [lines, setLines] = useState([]);
   const [current, setCurrent] = useState('');
   const indexRef = useRef(0);
@@ -65,6 +65,21 @@ export default function TerminalFeed() {
     timeout = setTimeout(typeStep, TYPE_MS);
     return () => clearTimeout(timeout);
   }, []);
+
+  // Naked mode: just raw text lines, no window chrome
+  if (naked) {
+    return (
+      <div className="terminal-naked">
+        {lines.map((line, i) => (
+          <div key={i} className={`terminal-line tag-${line.tag}`}>{line.text}</div>
+        ))}
+        <div className={`terminal-line tag-${SCRIPT[indexRef.current].tag}`}>
+          {current}
+          <span className="terminal-cursor" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="terminal-panel">
