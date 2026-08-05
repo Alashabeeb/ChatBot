@@ -4,9 +4,17 @@ export const lookupThreatIntelTool = {
     parameters: {
         type: 'object',
         properties: {
-            indicator: { type: 'string', description: 'The IP address, domain, or hash to lookup' },
-            type: { type: 'string', description: '"ip", "domain", or "hash"' }
-        }
+            indicator: { 
+                type: 'string', 
+                description: 'The exact Indicator of Compromise (IOC) to look up. This must be a valid IP address, domain name, or file hash.'
+            },
+            type: { 
+                type: 'string', 
+                description: 'The type of indicator provided.',
+                enum: ['ip', 'domain', 'hash']
+            }
+        },
+        required: ['indicator', 'type']
     },
     execute: async (params) => {
         const { indicator } = params;

@@ -6,9 +6,20 @@ export const getEndpointStatusTool = {
     parameters: {
         type: 'object',
         properties: {
-            target: { type: 'string', description: '"manager" or "agents"' },
-            status: { type: 'string', description: 'Filter by "active", "disconnected", etc. (optional)' }
-        }
+            target: { 
+                type: 'string', 
+                description: 'The target infrastructure to check. Use "manager" for the central SIEM server status, or "agents" for endpoints.',
+                enum: ['manager', 'agents'],
+                default: 'agents'
+            },
+            status: { 
+                type: 'string', 
+                description: 'Filter agents by connection status. "active" for connected, "disconnected" for offline.',
+                enum: ['active', 'disconnected', 'any'],
+                default: 'any'
+            }
+        },
+        required: ['target']
     },
     execute: async (params) => {
         const { target, status } = params;

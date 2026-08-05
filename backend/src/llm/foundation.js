@@ -27,3 +27,29 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         return null;
     }
 }
+
+/**
+ * Safely extracts JSON from an LLM response that might contain markdown blocks or leading/trailing text.
+ */
+export function extractJSON(text) {
+    if (!text) return null;
+    try {
+        // Find the first { or [ and the last } or ]
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        
+        if (start === -1 || end === -1 || start > end) {
+            // Try array brackets if object braces are missing
+            const arrStart = text.indexOf('[');
+            const arrEnd = text.lastIndexOf(']');
+            if (arrStart !== -1 && arrEnd !== -1 && arrStart < arrEnd) {
+                 return JSON.parse(text.substring(arrStart, arrEnd + 1));
+            }
+            throw new Error("No JSON object or array found in text.");
+        }
+        
+        return JSON.parse(text.substring(start, end + 1));
+    } catch (e) {
+        throw new Error(`Failed to extract JSON from response: ${e.message}`);
+    }
+}

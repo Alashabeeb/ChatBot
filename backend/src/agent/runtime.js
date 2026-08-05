@@ -1,5 +1,5 @@
 import { AgentContext } from './context.js';
-import { generateExecutionPlan } from './planner.js';
+import { generateLLMPlan } from './planner.js';
 import { executePlan } from './executor.js';
 import { askFoundation } from '../llm/foundation.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
@@ -16,15 +16,27 @@ registry.registerTool(getEndpointStatusTool);
 registry.registerTool(lookupThreatIntelTool);
 
 /**
- * AI Agent Runtime Coordinator
- * Coordinates the entire execution flow from receiving a request to returning the human-readable response.
+ * Phase 3 AI Agent Runtime Coordinator
+ * Implements two-stage LLM workflow: Planning & Reasoning, with structured observability.
  */
 export async function runAgentWorkflow(text, history) {
-    // 1. Initialize Context
     const context = new AgentContext(text, history);
+    const telemetry = {
+        planningDuration: 0,
+        executionDuration: 0,
+        aggregationDuration: 0,
+        reasoningDuration: 0,
+        totalDuration: 0
+    };
 
-    // 2. Planning Phase
-    const plan = generateExecutionPlan(text);
+    const runStart = Date.now();
+
+    // ==========================================
+    // 1. LLM Planning Phase
+    // ==========================================
+    const planStart = Date.now();
+    const plan = await generateLLMPlan(text, context.conversationHistory);
+    telemetry.planningDuration = Date.now() - planStart;
     
     if (plan.length === 0) {
         return {
@@ -33,42 +45,52 @@ export async function runAgentWorkflow(text, history) {
         };
     }
 
-    // 3. Execution Phase
+    // ==========================================
+    // 2. Execution Phase
+    // ==========================================
+    const execStart = Date.now();
     await executePlan(plan, context);
+    telemetry.executionDuration = Date.now() - execStart;
 
-    // 4. Evidence Aggregation Phase
-    const evidence = context.getEvidence();
+    // ==========================================
+    // 3. Evidence Aggregation Phase
+    // ==========================================
+    const aggStart = Date.now();
+    const rawEvidence = context.getEvidence();
     
-    // Analyze results to determine what to send to the LLM
-    let sourceLabel = 'agent-runtime';
+    const structuredEvidence = {
+        summary: {
+            toolsExecuted: plan.length,
+            successful: rawEvidence.filter(e => e.success).length,
+            failed: rawEvidence.filter(e => !e.success).length
+        },
+        evidence: {},
+        errors: context.errors
+    };
+
     let totalHits = 0;
-    let rawLogs = [];
-    let summaryPrompt = `User asked: "${text}"\n\n`;
-    
-    // Aggregate data from all executed tools
-    let usedSystemPrompt = SYSTEM_PROMPTS.STRICT_FACTUAL_RAG; // Default
-    
-    for (const result of evidence) {
-        if (!result.success) {
-            summaryPrompt += `TOOL FAILURE (${result.tool}): ${result.error}\n\n`;
-            continue;
-        }
+    let rawLogsToReturn = [];
+    let sourceLabel = 'agent-runtime';
+
+    for (const result of rawEvidence) {
+        if (!result.success) continue;
 
         if (result.tool === 'getEndpointStatus') {
-            totalHits += result.data.total;
-            rawLogs = result.data.data;
-            sourceLabel = result.data.url;
-            usedSystemPrompt = SYSTEM_PROMPTS.WAZUH_SERVER_API;
-            
-            summaryPrompt += `TOOL EVIDENCE (${result.tool}):\nTOTAL RESULTS: ${result.data.total}\nDATA:\n${JSON.stringify(rawLogs)}\n\n`;
+            totalHits += result.data.total || 0;
+            rawLogsToReturn = result.data.data || [];
+            sourceLabel = result.data.url || sourceLabel;
+            structuredEvidence.evidence[result.tool] = {
+                total: result.data.total,
+                data: result.data.data
+            };
         } 
         else if (result.tool === 'searchSecurityLogs') {
-            totalHits += result.data.totalHits;
-            rawLogs = result.data.rawData;
-            sourceLabel = result.data.targetIndex;
+            totalHits += result.data.totalHits || 0;
+            rawLogsToReturn = result.data.rawData || [];
+            sourceLabel = result.data.targetIndex || sourceLabel;
 
-            // Minify logs according to schema
-            const minifiedLogs = rawLogs.slice(0, 50).map(log => ({
+            // Minify logs according to schema to fit context window
+            const minifiedLogs = (result.data.rawData || []).slice(0, 30).map(log => ({
                 time: log['@timestamp'] || log.vulnerability?.detected_at || 'N/A',
                 level: typeof log.rule?.level === 'number' ? log.rule.level : log.vulnerability?.severity || 0,
                 desc: log.rule?.description || log.vulnerability?.description || 'N/A',
@@ -78,33 +100,47 @@ export async function runAgentWorkflow(text, history) {
                 cve: log.vulnerability?.id || 'N/A'
             }));
 
-            summaryPrompt += `TOOL EVIDENCE (${result.tool}):\nTOTAL MATCHES: ${result.data.totalHits}\nSAMPLE LOGS (TOP ${minifiedLogs.length}):\n${JSON.stringify(minifiedLogs)}\n\n`;
+            structuredEvidence.evidence[result.tool] = {
+                totalMatches: result.data.totalHits,
+                sampleLogs: minifiedLogs
+            };
         }
         else if (result.tool === 'lookupThreatIntel') {
-            summaryPrompt += `TOOL EVIDENCE (${result.tool}):\nDATA:\n${JSON.stringify(result.data)}\n\n`;
+            structuredEvidence.evidence[result.tool] = result.data;
         }
     }
+    telemetry.aggregationDuration = Date.now() - aggStart;
 
-    // 5. LLM Reasoning Phase
+    // ==========================================
+    // 4. LLM Reasoning Phase
+    // ==========================================
+    const reasonStart = Date.now();
     let finalSummary = '';
     
-    if (totalHits === 0 && evidence.some(e => e.tool === 'searchSecurityLogs')) {
+    if (totalHits === 0 && structuredEvidence.summary.successful > 0 && !structuredEvidence.evidence.lookupThreatIntel) {
         finalSummary = `I searched the database and intelligence sources, but found zero matching alerts or data for your query.`;
     } else {
-        // Only run LLM if we actually got some hits or if there was a specific response
-        const llamaSummary = await askFoundation(summaryPrompt, usedSystemPrompt, history);
+        const reasoningPrompt = `User Request: "${text}"\n\nStructured Evidence JSON:\n${JSON.stringify(structuredEvidence, null, 2)}`;
+        
+        const llamaSummary = await askFoundation(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, context.conversationHistory);
         finalSummary = llamaSummary || `Successfully retrieved ${totalHits} records. Click "View Full Details" to see the raw JSON logs.`;
     }
+    telemetry.reasoningDuration = Date.now() - reasonStart;
 
-    console.log(`[Runtime Complete] RequestID: ${context.requestId} | Duration: ${context.getDuration()}ms`);
+    // ==========================================
+    // 5. Finalize & Telemetry
+    // ==========================================
+    telemetry.totalDuration = Date.now() - runStart;
+    
+    console.log(`[Runtime Complete] RequestID: ${context.requestId}`);
+    console.log(`[Telemetry] Plan: ${telemetry.planningDuration}ms | Exec: ${telemetry.executionDuration}ms | Agg: ${telemetry.aggregationDuration}ms | Reason: ${telemetry.reasoningDuration}ms | Total: ${telemetry.totalDuration}ms`);
 
-    // 6. Return standard structured response to Frontend
     return {
         type: 'agent_response',
         source: sourceLabel,
         summary: finalSummary,
-        raw_logs: rawLogs,
+        raw_logs: rawLogsToReturn,
         total_hits: totalHits,
-        footer: `Analyzed by foundation-sec-8b | Runtime: ${context.getDuration()}ms`
+        footer: `Analyzed by foundation-sec-8b | Runtime: ${telemetry.totalDuration}ms`
     };
 }

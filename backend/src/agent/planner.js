@@ -5,15 +5,46 @@ import {
     extractTimeRange,
     cleanSearchQuery
 } from '../utils/parser.util.js';
+import { askFoundation, extractJSON } from '../llm/foundation.js';
+import { SYSTEM_PROMPTS } from '../llm/prompts.js';
+import registry from '../llm/registry.js';
+import { validateExecutionPlan } from '../schemas/ExecutionPlan.schema.js';
 
 /**
- * Phase 2 Planner
- * Temporarily wraps legacy intent logic. In future phases, this will be 
- * replaced by the LLM deciding which tools to call dynamically.
- * 
- * Always returns an ordered array of tool execution instructions.
+ * Phase 3 LLM-Driven Planner
+ * Interacts with Foundation-sec-8B to dynamically generate an execution plan.
  */
-export function generateExecutionPlan(text) {
+export async function generateLLMPlan(text, history = []) {
+    try {
+        const availableTools = registry.listTools();
+        const toolsContext = JSON.stringify(availableTools, null, 2);
+        
+        const prompt = `User Request: "${text}"\n\nAvailable Tools:\n${toolsContext}\n\nGenerate the execution plan.`;
+        
+        const llmResponse = await askFoundation(prompt, SYSTEM_PROMPTS.AGENT_PLANNER_PROMPT, history);
+        
+        if (!llmResponse) {
+            throw new Error("LLM did not return a response.");
+        }
+
+        const planJson = extractJSON(llmResponse);
+        
+        // Strictly validate against our single schema contract
+        validateExecutionPlan(planJson, registry);
+        
+        console.log(`[Planner LLM Success] Generated plan with ${planJson.tools.length} tool(s). Thought: "${planJson.thought}"`);
+        return planJson.tools;
+        
+    } catch (error) {
+        console.warn(`[Planner LLM Failure] ${error.message}. Falling back to legacy planner.`);
+        return fallbackLegacyPlanner(text);
+    }
+}
+
+/**
+ * Phase 2 Legacy Planner (Now used strictly as a fallback)
+ */
+export function fallbackLegacyPlanner(text) {
     const lowerText = text.toLowerCase().trim();
     const instructions = [];
 
@@ -24,7 +55,7 @@ export function generateExecutionPlan(text) {
     const cleanedSearchText = cleanSearchQuery(lowerText, chronoTimeStr);
 
     if (intent === 'agent_inventory' || intent === 'manager_status') {
-        let wqlStatus = '';
+        let wqlStatus = 'any';
         if (lowerText.includes('disconnected')) wqlStatus = 'disconnected';
         else if (lowerText.includes('active') || lowerText.includes('connected')) wqlStatus = 'active';
 
@@ -40,12 +71,12 @@ export function generateExecutionPlan(text) {
         instructions.push({
             tool: 'searchSecurityLogs',
             parameters: {
-                timeRange,
-                lteTime,
-                minSeverity,
-                extractedIPs,
-                intent,
-                cleanedSearchText
+                timeRange: timeRange || 'now-24h',
+                lteTime: lteTime || null,
+                minSeverity: minSeverity || null,
+                extractedIPs: extractedIPs || [],
+                intent: intent || 'alerts',
+                cleanedSearchText: cleanedSearchText || ''
             }
         });
 
