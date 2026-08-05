@@ -6,7 +6,7 @@ import registry from '../llm/registry.js';
  * It enforces standardized responses, handles execution time tracking, and catches all errors.
  * No business logic lives here.
  */
-export async function executeTool(toolName, parameters) {
+export async function executeTool(toolName, parameters, context = null) {
     const startTime = Date.now();
 
     const standardResponse = {
@@ -30,7 +30,7 @@ export async function executeTool(toolName, parameters) {
         console.log(`[Gateway Executing] Tool: ${toolName} | Params:`, JSON.stringify(parameters));
         
         // Execute the capability
-        const result = await tool.execute(parameters);
+        const result = await tool.execute(parameters, context);
         
         standardResponse.success = true;
         standardResponse.data = result;

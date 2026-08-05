@@ -5,8 +5,9 @@ import { randomUUID } from 'crypto';
  * Request-scoped only. Persistent memory to be added in later phases.
  */
 export class AgentContext {
-    constructor(userRequest, conversationHistory = []) {
+    constructor(userRequest, conversationHistory = [], userId = 'default_user_1') {
         this.requestId = randomUUID();
+        this.userId = userId;
         this.userRequest = userRequest;
         this.conversationHistory = conversationHistory;
         this.executionStart = Date.now();

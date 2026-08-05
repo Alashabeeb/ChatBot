@@ -51,5 +51,17 @@ Structure your response using the following headers (use Markdown):
 - **Risk Assessment**: Your analysis of the threat level.
 - **MITRE Mapping**: (If applicable, map to MITRE ATT&CK tactics/techniques).
 - **Recommendations**: Actionable remediation steps.
-- **Confidence Score**: A score out of 100% based on the completeness of the evidence.`
+- **Confidence Score**: A score out of 100% based on the completeness of the evidence.`,
+
+    MEMORY_SUMMARIZATION_PROMPT: `You are the Memory Engine for an AI SOC Copilot.
+Your job is to compress the current investigation into a concise, structured summary that will be stored in Long-Term Memory.
+Extract the most critical entities (IPs, users, threat names) and the final conclusion.
+
+OUTPUT FORMAT:
+Return ONLY a strict JSON object matching this schema:
+{
+  "summary": "A 1-2 sentence summary of what was investigated and found.",
+  "keyEntities": ["list", "of", "important", "indicators"]
+}
+Do not include markdown ticks like \`\`\`json.`
 };

@@ -9,18 +9,23 @@ import registry from '../llm/registry.js';
 import { searchSecurityLogsTool } from '../tools/searchSecurityLogs.js';
 import { getEndpointStatusTool } from '../tools/getEndpointStatus.js';
 import { lookupThreatIntelTool } from '../tools/lookupThreatIntel.js';
+import { searchMemoryTool } from '../tools/searchMemory.js';
+
+// Memory Subsystem
+import { memoryManager } from '../memory/manager.js';
 
 // Register tools at runtime startup
 registry.registerTool(searchSecurityLogsTool);
 registry.registerTool(getEndpointStatusTool);
 registry.registerTool(lookupThreatIntelTool);
+registry.registerTool(searchMemoryTool);
 
 /**
- * Phase 3 AI Agent Runtime Coordinator
- * Implements two-stage LLM workflow: Planning & Reasoning, with structured observability.
+ * Phase 4 AI Agent Runtime Coordinator
+ * Implements two-stage LLM workflow: Planning & Reasoning, with structured observability and MEMORY LIFECYCLE.
  */
-export async function runAgentWorkflow(text, history) {
-    const context = new AgentContext(text, history);
+export async function runAgentWorkflow(text, history, userId = 'default_user_1') {
+    const context = new AgentContext(text, history, userId);
     const telemetry = {
         planningDuration: 0,
         executionDuration: 0,
@@ -32,10 +37,18 @@ export async function runAgentWorkflow(text, history) {
     const runStart = Date.now();
 
     // ==========================================
+    // 0. Context Enrichment (Memory)
+    // ==========================================
+    const preMemories = await memoryManager.retrieve(userId, text);
+    const preContextStr = `Recent Context: ${JSON.stringify(preMemories.shortTerm.slice(0,2))}\nPreferences: ${JSON.stringify(preMemories.longTerm.filter(m => m.category === 'preference'))}`;
+    
+    // ==========================================
     // 1. LLM Planning Phase
     // ==========================================
     const planStart = Date.now();
-    const plan = await generateLLMPlan(text, context.conversationHistory);
+    // Pass the preContextStr as part of the history context for the planner
+    const enrichedHistory = [...context.conversationHistory, { role: "system", content: preContextStr }];
+    const plan = await generateLLMPlan(text, enrichedHistory);
     telemetry.planningDuration = Date.now() - planStart;
     
     if (plan.length === 0) {
@@ -89,7 +102,6 @@ export async function runAgentWorkflow(text, history) {
             rawLogsToReturn = result.data.rawData || [];
             sourceLabel = result.data.targetIndex || sourceLabel;
 
-            // Minify logs according to schema to fit context window
             const minifiedLogs = (result.data.rawData || []).slice(0, 30).map(log => ({
                 time: log['@timestamp'] || log.vulnerability?.detected_at || 'N/A',
                 level: typeof log.rule?.level === 'number' ? log.rule.level : log.vulnerability?.severity || 0,
@@ -105,7 +117,7 @@ export async function runAgentWorkflow(text, history) {
                 sampleLogs: minifiedLogs
             };
         }
-        else if (result.tool === 'lookupThreatIntel') {
+        else if (result.tool === 'lookupThreatIntel' || result.tool === 'searchMemory') {
             structuredEvidence.evidence[result.tool] = result.data;
         }
     }
@@ -117,18 +129,38 @@ export async function runAgentWorkflow(text, history) {
     const reasonStart = Date.now();
     let finalSummary = '';
     
-    if (totalHits === 0 && structuredEvidence.summary.successful > 0 && !structuredEvidence.evidence.lookupThreatIntel) {
+    if (totalHits === 0 && structuredEvidence.summary.successful > 0 && !structuredEvidence.evidence.lookupThreatIntel && !structuredEvidence.evidence.searchMemory) {
         finalSummary = `I searched the database and intelligence sources, but found zero matching alerts or data for your query.`;
     } else {
         const reasoningPrompt = `User Request: "${text}"\n\nStructured Evidence JSON:\n${JSON.stringify(structuredEvidence, null, 2)}`;
         
         const llamaSummary = await askFoundation(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, context.conversationHistory);
-        finalSummary = llamaSummary || `Successfully retrieved ${totalHits} records. Click "View Full Details" to see the raw JSON logs.`;
+        finalSummary = llamaSummary || `Successfully retrieved records. Click "View Full Details" to see the raw JSON logs.`;
     }
     telemetry.reasoningDuration = Date.now() - reasonStart;
 
     // ==========================================
-    // 5. Finalize & Telemetry
+    // 5. Memory Write (Automatic Runtime Policy)
+    // ==========================================
+    // If the investigation yielded results, we summarize and save it to memory in the background
+    if (totalHits > 0 || structuredEvidence.evidence.lookupThreatIntel || structuredEvidence.evidence.searchMemory) {
+        memoryManager.summarize(text, finalSummary, structuredEvidence).then(async (summaryJsonStr) => {
+            try {
+                // The summarizer returns a string, we want to store it as JSON if possible
+                let content = JSON.parse(summaryJsonStr);
+                await memoryManager.write(userId, 'investigation', content, { isImportant: true });
+            } catch(e) {
+                // Fallback to storing raw string
+                await memoryManager.write(userId, 'investigation', { summary: summaryJsonStr, keyEntities: [] }, { isImportant: false });
+            }
+        }).catch(err => console.error("[Memory Summarization Failed]", err));
+    } else {
+        // Just store short term interaction
+        memoryManager.write(userId, 'conversation', { user: text, bot: finalSummary }, { isImportant: false });
+    }
+
+    // ==========================================
+    // 6. Finalize & Telemetry
     // ==========================================
     telemetry.totalDuration = Date.now() - runStart;
     
