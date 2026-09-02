@@ -1,23 +1,14 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown, Square } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown, Square, Users, User } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ChatMessage, { TypingDots } from '../components/ChatMessage';
 import DataCard from '../components/DataCard';
 import ChartCard from '../components/ChartCard';
 import Sidebar from '../components/Sidebar';
 import LogDetailsModal from '../components/LogDetailsModal';
+import AdminUsersModal from '../components/AdminUsersModal';
 import './ChatPage.css';
-
-// Synthetic Chart Data
-const mockChartData = [
-  { time: '10:00', alerts: 4 },
-  { time: '11:00', alerts: 7 },
-  { time: '12:00', alerts: 2 },
-  { time: '13:00', alerts: 12 },
-  { time: '14:00', alerts: 5 },
-  { time: '15:00', alerts: 8 },
-];
 
 // Truncated summary with "more" / "less" toggle
 function TruncatedSummary({ text, wordLimit = 20 }) {
@@ -38,33 +29,18 @@ function TruncatedSummary({ text, wordLimit = 20 }) {
   );
 }
 
-const SESSIONS_KEY = 'soc_chat_sessions';
-const MAX_SESSIONS = 5;
-
 const INITIAL_MESSAGES = [
   {
     role: 'assistant',
     type: 'text',
-    text: 'Welcome to SOC ChatBot. I am connected to the manager. Ask me about agent status, recent alerts, or run /stats for trends.',
+    text: 'Welcome to SOC ChatBot. I am connected to the Wazuh SIEM manager. Ask me about agent status, recent alerts, authentication failures, or CVE vulnerabilities.',
     timestamp: new Date().toISOString()
   }
 ];
 
-function loadSessions() {
-  try {
-    return JSON.parse(localStorage.getItem(SESSIONS_KEY)) || [];
-  } catch { return []; }
-}
-
-function saveSessions(sessions) {
-  try {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-  } catch {}
-}
-
-export default function ChatPage({ onLogout }) {
+export default function ChatPage({ currentUser, onLogout }) {
   const { theme, toggleTheme } = useTheme();
-  const [sessions, setSessions] = useState(loadSessions);
+  const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
@@ -73,9 +49,43 @@ export default function ChatPage({ onLogout }) {
   const [selectedSources, setSelectedSources] = useState(['wazuh']);
   const [modalData, setModalData] = useState(null);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('soc_auth_token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
+  // Fetch user sessions from SQLite Database on mount
+  const loadSessionsFromDB = useCallback(async () => {
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:3002/api/sessions'
+        : `http://${window.location.hostname}:3002/api/sessions`;
+
+      const res = await fetch(API_URL, { headers: getAuthHeaders() });
+      if (res.status === 401 || res.status === 403) {
+        onLogout();
+        return;
+      }
+      const data = await res.json();
+      if (data.success && Array.isArray(data.sessions)) {
+        setSessions(data.sessions);
+      }
+    } catch (e) {
+      console.warn('Could not load sessions from DB:', e);
+    }
+  }, [onLogout]);
+
+  useEffect(() => {
+    loadSessionsFromDB();
+  }, [loadSessionsFromDB]);
 
   // Auto-scroll
   useEffect(() => {
@@ -109,16 +119,21 @@ export default function ChatPage({ onLogout }) {
 
       const response = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ text, sources: selectedSources, history }),
         signal
       });
       
+      if (response.status === 401 || response.status === 403) {
+        onLogout();
+        return { type: 'text', text: '⚠️ Session expired. Please log in again.' };
+      }
+
       const data = await response.json();
       
       if (!response.ok) {
         if (data.type === 'text') return data;
-        throw new Error('Network error or server is down');
+        throw new Error(data.error || 'Network error or server is down');
       }
       
       return data;
@@ -137,6 +152,31 @@ export default function ChatPage({ onLogout }) {
     }
   }
 
+  async function saveMessageToDB(sessionId, msg) {
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? `http://localhost:3002/api/sessions/${sessionId}/messages`
+        : `http://${window.location.hostname}:3002/api/sessions/${sessionId}/messages`;
+
+      await fetch(API_URL, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          id: msg.id,
+          role: msg.role,
+          type: msg.type || 'text',
+          text: msg.text || '',
+          summary: msg.summary || '',
+          rawLogs: msg.raw_logs || null,
+          totalHits: msg.total_hits || 0,
+          isNew: msg.isNew ? 1 : 0
+        })
+      });
+    } catch (e) {
+      console.warn('Failed to persist message to DB:', e);
+    }
+  }
+
   async function handleSend(overrideText) {
     const text = (overrideText ?? input).trim();
     if (!text || isTyping) return;
@@ -144,7 +184,13 @@ export default function ChatPage({ onLogout }) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const userMsg = { role: 'user', type: 'text', text };
+    const userMsg = {
+      id: 'msg_u_' + Date.now(),
+      role: 'user',
+      type: 'text',
+      text,
+      timestamp: new Date().toISOString()
+    };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
@@ -152,7 +198,6 @@ export default function ChatPage({ onLogout }) {
 
     // Handle Session Creation / Update
     let currentSessionId = activeSessionId;
-    let currentSessions = [...sessions];
 
     if (!currentSessionId) {
       currentSessionId = 'sess_' + Date.now();
@@ -160,40 +205,51 @@ export default function ChatPage({ onLogout }) {
       title = title.charAt(0).toUpperCase() + title.slice(1);
       if (title.length > 40) title = title.slice(0, 37) + '...';
 
-      const newSession = {
-        id: currentSessionId,
-        title,
-        messages: newMessages
-      };
-
-      currentSessions = [newSession, ...currentSessions.filter(s => s.id !== currentSessionId)].slice(0, MAX_SESSIONS);
       setActiveSessionId(currentSessionId);
-      setSessions(currentSessions);
-      saveSessions(currentSessions);
-    } else {
-      currentSessions = currentSessions.map(s => s.id === currentSessionId ? { ...s, messages: newMessages } : s);
-      setSessions(currentSessions);
-      saveSessions(currentSessions);
+      
+      // Save session in DB
+      try {
+        const API_URL = window.location.hostname === 'localhost'
+          ? 'http://localhost:3002/api/sessions'
+          : `http://${window.location.hostname}:3002/api/sessions`;
+
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ id: currentSessionId, title })
+        });
+        const d = await res.json();
+        if (d.success && d.session) {
+          setSessions(prev => [d.session, ...prev.filter(s => s.id !== currentSessionId)]);
+        }
+      } catch (e) {
+        console.warn('Session create failed:', e);
+      }
     }
+
+    // Persist user message to DB
+    saveMessageToDB(currentSessionId, userMsg);
 
     const reply = await getBackendReply(text, controller.signal);
 
     setIsTyping(false);
     abortControllerRef.current = null;
     
-    // Add isNew flag so the ChatMessage knows to apply Typewriter effect
-    const finalMessages = [...newMessages, { role: 'assistant', isNew: true, ...reply }];
+    // Add isNew flag for typewriter animation
+    const assistantMsg = {
+      id: 'msg_a_' + Date.now(),
+      role: 'assistant',
+      isNew: true,
+      ...reply,
+      timestamp: new Date().toISOString()
+    };
+    
+    const finalMessages = [...newMessages, assistantMsg];
     setMessages(finalMessages);
 
-    // Save final messages to session, stripping isNew so it doesn't re-animate on reload/session switch
-    if (currentSessionId) {
-      setSessions(prev => {
-        const sessionMessages = finalMessages.map(m => ({ ...m, isNew: false }));
-        const updated = prev.map(s => s.id === currentSessionId ? { ...s, messages: sessionMessages } : s);
-        saveSessions(updated);
-        return updated;
-      });
-    }
+    // Persist bot response to DB
+    saveMessageToDB(currentSessionId, assistantMsg);
+    loadSessionsFromDB();
   }
 
   function handleNewChat() {
@@ -203,31 +259,63 @@ export default function ChatPage({ onLogout }) {
     setInput('');
   }
 
-  function handleSelectSession(sessionId) {
+  async function handleSelectSession(sessionId) {
     if (isTyping) handleCancel();
-    const target = sessions.find(s => s.id === sessionId);
-    if (target) {
-      setActiveSessionId(sessionId);
-      setMessages(target.messages);
+    setActiveSessionId(sessionId);
+
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? `http://localhost:3002/api/sessions/${sessionId}/messages`
+        : `http://${window.location.hostname}:3002/api/sessions/${sessionId}/messages`;
+
+      const res = await fetch(API_URL, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.messages) && data.messages.length > 0) {
+        setMessages(data.messages.map(m => ({ ...m, isNew: false })));
+      } else {
+        setMessages(INITIAL_MESSAGES);
+      }
+    } catch (e) {
+      console.warn('Error loading session messages:', e);
     }
   }
 
-  function handleClearSessions() {
+  async function handleClearSessions() {
     if (isTyping) handleCancel();
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:3002/api/sessions'
+        : `http://${window.location.hostname}:3002/api/sessions`;
+
+      await fetch(API_URL, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+    } catch (e) {
+      console.warn('Error clearing sessions:', e);
+    }
     setSessions([]);
     setActiveSessionId(null);
     setMessages(INITIAL_MESSAGES);
-    localStorage.removeItem(SESSIONS_KEY);
   }
 
-  function handleDeleteSession(sessionId) {
+  async function handleDeleteSession(sessionId) {
     if (isTyping && sessionId === activeSessionId) handleCancel();
     
-    setSessions(prev => {
-      const updated = prev.filter(s => s.id !== sessionId);
-      saveSessions(updated);
-      return updated;
-    });
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? `http://localhost:3002/api/sessions/${sessionId}`
+        : `http://${window.location.hostname}:3002/api/sessions/${sessionId}`;
+
+      await fetch(API_URL, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+    } catch (e) {
+      console.warn('Error deleting session:', e);
+    }
+
+    setSessions(prev => prev.filter(s => s.id !== sessionId));
 
     if (activeSessionId === sessionId) {
       setActiveSessionId(null);
@@ -280,10 +368,34 @@ export default function ChatPage({ onLogout }) {
         </div>
         
         <div className="header-right">
+          {/* User Profile Chip */}
+          <div className="user-profile-badge">
+            <div className="user-avatar-tiny">
+              {currentUser?.role === 'admin' ? <Shield size={13} /> : <User size={13} />}
+            </div>
+            <span className="user-name-label">{currentUser?.username || 'User'}</span>
+            <span className={`user-role-pill role-${currentUser?.role || 'user'}`}>
+              {currentUser?.role?.toUpperCase() || 'USER'}
+            </span>
+          </div>
+
+          {/* Admin User Management Button (Only visible if role === 'admin') */}
+          {currentUser?.role === 'admin' && (
+            <button
+              className="icon-btn admin-badge-btn"
+              onClick={() => setIsAdminModalOpen(true)}
+              title="User Management (Admin)"
+              aria-label="User Management"
+            >
+              <Users size={16} />
+              <span className="admin-btn-text">Users</span>
+            </button>
+          )}
+
           <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
             {theme === 'dark' ? '☀️' : '🌙'}
           </button>
-          <button className="icon-btn logout-btn" onClick={onLogout} aria-label="Logout">
+          <button className="icon-btn logout-btn" onClick={onLogout} aria-label="Logout" title="Sign Out">
             <LogOut size={18} />
           </button>
         </div>
@@ -300,6 +412,8 @@ export default function ChatPage({ onLogout }) {
           onNewChat={handleNewChat}
           onClearSessions={handleClearSessions}
           onDeleteSession={handleDeleteSession}
+          currentUser={currentUser}
+          onOpenAdminModal={() => setIsAdminModalOpen(true)}
         />
 
         {/* Mobile sidebar overlay */}
@@ -319,7 +433,7 @@ export default function ChatPage({ onLogout }) {
           {/* Message List */}
           <div className="chat-messages" ref={scrollRef}>
             {messages.map((m, i) => (
-              <div key={i}>
+              <div key={m.id || i}>
                 {m.type === 'text' && (
                   <ChatMessage message={m} isLast={i === messages.length - 1} />
                 )}
@@ -355,7 +469,7 @@ export default function ChatPage({ onLogout }) {
           <div className="chat-composer-container">
             <div className="composer-wrapper">
               
-              {/* Claude-style internal agent dropdown */}
+              {/* Internal agent dropdown */}
               <div className="composer-toolbar">
                 <div className="agent-dropdown-container">
                   <button 
@@ -450,6 +564,17 @@ export default function ChatPage({ onLogout }) {
               </div>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Admin User Management Modal (Only openable by Admin) */}
+      <AnimatePresence>
+        {isAdminModalOpen && (
+          <AdminUsersModal
+            isOpen={isAdminModalOpen}
+            onClose={() => setIsAdminModalOpen(false)}
+            currentUser={currentUser}
+          />
         )}
       </AnimatePresence>
     </div>

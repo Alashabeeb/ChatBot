@@ -367,6 +367,108 @@
   letter-spacing: 0.5px;
 }
 
+/* Error Banner */
+.gb-error-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  color: #fca5a5;
+  font-size: 13px;
+  text-align: left;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.1);
+}
+
+.gb-error-banner svg {
+  flex-shrink: 0;
+  color: #ef4444;
+}
+
+/* Login Form */
+.gb-login-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.gb-input-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+}
+
+.gb-input-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(167, 243, 208, 0.85);
+  letter-spacing: 0.3px;
+}
+
+.gb-input-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.gb-input-icon {
+  position: absolute;
+  left: 14px;
+  color: rgba(167, 243, 208, 0.5);
+  pointer-events: none;
+}
+
+.gb-text-input {
+  width: 100%;
+  background: rgba(16, 185, 129, 0.05);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 12px;
+  padding: 12px 14px 12px 42px;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.25s ease;
+  box-sizing: border-box;
+}
+
+.gb-text-input:focus {
+  border-color: var(--accent, #10b981);
+  background: rgba(16, 185, 129, 0.1);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
+}
+
+.gb-text-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.gb-password-toggle {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: rgba(167, 243, 208, 0.5);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+
+.gb-password-toggle:hover {
+  color: var(--accent, #10b981);
+}
+
 /* Open button */
 .gb-open-btn {
   position: relative;

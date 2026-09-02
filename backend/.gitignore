@@ -1,0 +1,17 @@
+# Environment Variables & Secrets
+.env
+.env.*
+*.env
+
+# SQLite Database Files
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+data/
+
+# Logs & Node Modules
+node_modules/
+logs/
+*.log

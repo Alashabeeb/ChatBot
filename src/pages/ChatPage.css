@@ -101,7 +101,78 @@
 .header-right {
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+/* User profile chip */
+.user-profile-badge {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 20px;
+  padding: 4px 10px 4px 6px;
+  margin-right: 4px;
+}
+
+.user-avatar-tiny {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-name-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-role-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.4px;
+}
+
+.user-role-pill.role-admin {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.user-role-pill.role-user {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+/* Admin badge button in header */
+.admin-badge-btn {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  border-radius: 20px;
+}
+
+.admin-badge-btn:hover {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fff;
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.admin-btn-text {
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .icon-btn {

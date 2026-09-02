@@ -1,4 +1,4 @@
-import { MapProvider } from './providers/MapProvider.js';
+import { SqliteMemoryProvider } from './providers/SqliteMemoryProvider.js';
 
 /**
  * Memory Gateway
@@ -7,8 +7,7 @@ import { MapProvider } from './providers/MapProvider.js';
  */
 class MemoryGateway {
     constructor() {
-        // Hardcoded to MapProvider for Phase 4. Can be injected later.
-        this.provider = new MapProvider();
+        this.provider = new SqliteMemoryProvider();
         this.provider.connect();
     }
 

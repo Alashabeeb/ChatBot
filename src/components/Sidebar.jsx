@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings, Search, Bug, Globe, Key, Trash2, MessageSquare } from 'lucide-react';
+import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings, Search, Bug, Globe, Key, Trash2, MessageSquare, Shield, User } from 'lucide-react';
 import './Sidebar.css';
 
 const QUICK_PROMPTS = [
@@ -11,7 +11,19 @@ const QUICK_PROMPTS = [
   { label: 'Suspicious SSH activity', prompt: 'Show me all SSH login failures and suspicious SSH activity', icon: <Terminal size={14} className="text-warning" /> },
 ];
 
-export default function Sidebar({ isOpen, onClose, onPromptClick, sessions = [], activeSessionId, onSelectSession, onNewChat, onClearSessions, onDeleteSession }) {
+export default function Sidebar({
+  isOpen,
+  onClose,
+  onPromptClick,
+  sessions = [],
+  activeSessionId,
+  onSelectSession,
+  onNewChat,
+  onClearSessions,
+  onDeleteSession,
+  currentUser,
+  onOpenAdminModal
+}) {
   const [width, setWidth] = useState(280);
   const isResizing = useRef(false);
 
@@ -160,14 +172,32 @@ export default function Sidebar({ isOpen, onClose, onPromptClick, sessions = [],
         </div>
         
         <div className="sidebar-footer">
-          <motion.button 
-             className="settings-btn"
-             whileHover={{ scale: 1.02 }}
-             whileTap={{ scale: 0.98 }}
-          >
-            <Settings size={16} />
-            <span>Settings</span>
-          </motion.button>
+          {currentUser?.role === 'admin' && (
+            <motion.button 
+               className="admin-sidebar-btn"
+               whileHover={{ scale: 1.02 }}
+               whileTap={{ scale: 0.98 }}
+               onClick={() => {
+                 if (onOpenAdminModal) onOpenAdminModal();
+                 if (window.innerWidth < 768) onClose();
+               }}
+            >
+              <Users size={16} />
+              <span>User Management</span>
+            </motion.button>
+          )}
+
+          <div className="sidebar-user-pill">
+            <div className="sidebar-user-avatar">
+              {currentUser?.role === 'admin' ? <Shield size={14} /> : <User size={14} />}
+            </div>
+            <div className="sidebar-user-meta">
+              <span className="sidebar-username">{currentUser?.username || 'User'}</span>
+              <span className={`sidebar-user-role role-${currentUser?.role || 'user'}`}>
+                {currentUser?.role?.toUpperCase() || 'USER'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       

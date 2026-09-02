@@ -1,19 +1,55 @@
 import { useState } from 'react';
-import { Shield, ShieldCheck, Activity, Brain, Lock, ArrowRight } from 'lucide-react';
+import { Shield, ShieldCheck, Activity, Brain, Lock, User, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import TerminalFeed from '../components/TerminalFeed';
 import './LoginPage.css';
 
 export default function LoginPage({ onLogin }) {
   const { theme, toggleTheme } = useTheme();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  
-  const handleLogin = async (e) => {
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!username.trim() || !password) {
+      setError('Please enter both username and password.');
+      return;
+    }
+
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setIsLoading(false);
-    onLogin();
+    setError(null);
+
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:3002/api/auth/login'
+        : `http://${window.location.hostname}:3002/api/auth/login`;
+
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+      }
+
+      // Save token and user details to localStorage
+      localStorage.setItem('soc_auth_token', data.token);
+      localStorage.setItem('soc_auth_user', JSON.stringify(data.user));
+
+      onLogin(data.user);
+    } catch (err) {
+      console.error('Login Error:', err);
+      setError(err.message || 'Unable to reach backend server. Please verify backend is running on port 3002.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -44,7 +80,7 @@ export default function LoginPage({ onLogin }) {
       {/* Full-screen main area with orbit as background */}
       <main className="gb-main">
 
-        {/* Orbit background — positioned absolutely to fill the entire main area */}
+        {/* Orbit background */}
         <div className="gb-orb-bg">
           <div className="gb-orb-stage">
             <div className="network-orb">
@@ -91,68 +127,103 @@ export default function LoginPage({ onLogin }) {
             {/* Shield icon */}
             <div className="gb-card-icon">
               <div className="gb-icon-ring" />
-              <Shield size={40} />
+              <Shield size={38} />
             </div>
 
             {/* Title */}
             <h1 className="gb-card-title">SOC ChatBot</h1>
-            <p className="gb-card-subtitle">Advanced Threat Analytics System</p>
+            <p className="gb-card-subtitle">Enterprise Security Operations Portal</p>
 
             {/* Divider */}
             <div className="gb-card-divider" />
 
-            {/* Feature badges */}
-            <div className="gb-badge-row">
-              <div className="gb-badge">
-                <Brain size={14} />
-                <span>AI-Powered</span>
+            {/* Error Message Box */}
+            {error && (
+              <div className="gb-error-banner">
+                <AlertCircle size={16} />
+                <span>{error}</span>
               </div>
-              <div className="gb-badge">
-                <Activity size={14} />
-                <span>Real-time</span>
-              </div>
-              <div className="gb-badge">
-                <ShieldCheck size={14} />
-                <span>24/7 SOC</span>
-              </div>
-            </div>
+            )}
 
-            {/* Stat cards */}
-            <div className="gb-stats-row">
-              <div className="gb-stat-card">
-                <span className="gb-stat-value">99.9%</span>
-                <span className="gb-stat-label">Uptime</span>
+            {/* Sign-In Form */}
+            <form onSubmit={handleSubmit} className="gb-login-form">
+              <div className="gb-input-group">
+                <label className="gb-input-label">Username</label>
+                <div className="gb-input-wrapper">
+                  <User size={18} className="gb-input-icon" />
+                  <input
+                    type="text"
+                    placeholder="Enter username (e.g. admin)"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                    autoFocus
+                    className="gb-text-input"
+                    disabled={isLoading}
+                  />
+                </div>
               </div>
-              <div className="gb-stat-card">
-                <span className="gb-stat-value">24/7</span>
-                <span className="gb-stat-label">Active</span>
-              </div>
-              <div className="gb-stat-card">
-                <span className="gb-stat-value">500+</span>
-                <span className="gb-stat-label">Rules</span>
-              </div>
-            </div>
 
-            {/* Open button */}
-            <form onSubmit={handleLogin}>
+              <div className="gb-input-group">
+                <label className="gb-input-label">Password</label>
+                <div className="gb-input-wrapper">
+                  <Lock size={18} className="gb-input-icon" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="gb-text-input"
+                    disabled={isLoading}
+                  />
+                  <button
+                    type="button"
+                    className="gb-password-toggle"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Submit button */}
               <button type="submit" className="gb-open-btn" disabled={isLoading}>
-                <span>{isLoading ? 'Connecting...' : 'Open ChatBot'}</span>
+                <span>{isLoading ? 'Authenticating...' : 'Sign In'}</span>
                 {!isLoading && <ArrowRight size={18} />}
                 <div className="gb-btn-shimmer" />
               </button>
             </form>
 
+            {/* Feature badges */}
+            <div className="gb-badge-row">
+              <div className="gb-badge">
+                <Brain size={13} />
+                <span>AI-Powered</span>
+              </div>
+              <div className="gb-badge">
+                <Activity size={13} />
+                <span>Real-time</span>
+              </div>
+              <div className="gb-badge">
+                <ShieldCheck size={13} />
+                <span>RBAC Secured</span>
+              </div>
+            </div>
+
             {/* Footer text */}
             <p className="gb-card-footer">
               <Lock size={12} />
-              Enterprise-grade security • Connected to Wazuh SIEM
+              Enterprise-grade security • Role-Based Access Control
             </p>
           </div>
         </div>
       </main>
 
       <footer className="gb-footer">
-        <p>Copyright© SOC ChatBot 2016-2026. All rights reserved. <a href="#">Privacy Statement</a></p>
+        <p>Copyright© SOC ChatBot 2016-2026. All rights reserved.</p>
       </footer>
     </div>
   );

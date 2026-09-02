@@ -11,7 +11,8 @@ export async function handleChat(req, res) {
             });
         }
 
-        const responseData = await processChatQuery(text, sources, history);
+        const userId = req.user?.id || 'default_user_1';
+        const responseData = await processChatQuery(text, sources, history, userId);
         return res.json(responseData);
     } catch (error) {
         console.error('Controller Error:', error.message);

@@ -1,6 +1,21 @@
+# Environment Variables & Secrets
+.env
+.env.*
+*.env
+backend/.env
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+backend/data/
+
 # Logs
 logs
 *.log
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
