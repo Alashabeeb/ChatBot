@@ -374,9 +374,6 @@ export default function ChatPage({ currentUser, onLogout }) {
               {currentUser?.role === 'admin' ? <Shield size={13} /> : <User size={13} />}
             </div>
             <span className="user-name-label">{currentUser?.username || 'User'}</span>
-            <span className={`user-role-pill role-${currentUser?.role || 'user'}`}>
-              {currentUser?.role?.toUpperCase() || 'USER'}
-            </span>
           </div>
 
           {/* Admin User Management Button (Only visible if role === 'admin') */}

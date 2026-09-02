@@ -193,9 +193,6 @@ export default function Sidebar({
             </div>
             <div className="sidebar-user-meta">
               <span className="sidebar-username">{currentUser?.username || 'User'}</span>
-              <span className={`sidebar-user-role role-${currentUser?.role || 'user'}`}>
-                {currentUser?.role?.toUpperCase() || 'USER'}
-              </span>
             </div>
           </div>
         </div>
