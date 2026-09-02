@@ -1,15 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings, Search, Bug, Globe, Key, Trash2, MessageSquare, Shield, User } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Terminal, ShieldAlert, Users, Server, Activity, Clock, Plus, Settings, Search, Bug, Globe, Key, Trash2, MessageSquare, Shield, User, ChevronDown } from 'lucide-react';
 import './Sidebar.css';
 
-const QUICK_PROMPTS = [
-  { label: 'Authentication failures (24h)', prompt: 'Show me all authentication failures in the last 24 hours', icon: <Key size={14} className="text-danger" /> },
-  { label: 'Brute force attacks', prompt: 'Find all brute force login attempts on the network', icon: <ShieldAlert size={14} className="text-danger" /> },
-  { label: 'Top attacking IPs', prompt: 'What are the top source IPs generating alerts today?', icon: <Globe size={14} className="text-warning" /> },
-  { label: 'Critical CVE vulnerabilities', prompt: 'List all hosts with unpatched critical CVE vulnerabilities', icon: <Bug size={14} className="text-danger" /> },
-  { label: 'Suspicious SSH activity', prompt: 'Show me all SSH login failures and suspicious SSH activity', icon: <Terminal size={14} className="text-warning" /> },
-];
+
 
 export default function Sidebar({
   isOpen,
@@ -22,9 +16,12 @@ export default function Sidebar({
   onClearSessions,
   onDeleteSession,
   currentUser,
-  onOpenAdminModal
+  onOpenAdminModal,
+  quickQueries = [],
+  onManageQueries
 }) {
   const [width, setWidth] = useState(280);
+  const [isQueriesOpen, setIsQueriesOpen] = useState(true);
   const isResizing = useRef(false);
 
   useEffect(() => {
@@ -82,24 +79,55 @@ export default function Sidebar({
         </div>
 
         <div className="sidebar-section">
-          <h3 className="sidebar-heading">Quick Queries</h3>
-          <div className="quick-prompts">
-            {QUICK_PROMPTS.map((q) => (
-              <motion.button
-                key={q.label}
-                className="quick-prompt-btn"
-                onClick={() => {
-                  onPromptClick(q.prompt);
-                  if (window.innerWidth < 768) onClose();
-                }}
-                whileHover={{ scale: 1.02, x: 2 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                {q.icon}
-                <span>{q.label}</span>
-              </motion.button>
-            ))}
+          <div className="sidebar-heading-row" style={{ cursor: 'pointer' }} onClick={() => setIsQueriesOpen(!isQueriesOpen)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <h3 className="sidebar-heading" style={{ margin: 0 }}>Quick Queries</h3>
+              <motion.div animate={{ rotate: isQueriesOpen ? 180 : 0 }}>
+                <ChevronDown size={14} color="var(--text-muted)" />
+              </motion.div>
+            </div>
+            <button 
+              className="clear-recent-btn" 
+              onClick={(e) => { e.stopPropagation(); onManageQueries(); }} 
+              title="Manage Quick Queries"
+            >
+              <Settings size={13} />
+            </button>
           </div>
+          
+          <AnimatePresence>
+            {isQueriesOpen && (
+              <motion.div 
+                className="quick-prompts"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                style={{ overflow: 'hidden', marginTop: '8px' }}
+              >
+                {quickQueries.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '4px 8px' }}>
+                    No quick queries found. Click the gear icon to add some.
+                  </div>
+                ) : (
+                  quickQueries.map((q) => (
+                    <motion.button
+                      key={q.id}
+                      className="quick-prompt-btn"
+                      onClick={() => {
+                        onPromptClick(q.prompt);
+                        if (window.innerWidth < 768) onClose();
+                      }}
+                      whileHover={{ scale: 1.02, x: 2 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <MessageSquare size={14} className="text-warning" />
+                      <span>{q.label}</span>
+                    </motion.button>
+                  ))
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="sidebar-divider" />

@@ -8,6 +8,7 @@ import ChartCard from '../components/ChartCard';
 import Sidebar from '../components/Sidebar';
 import LogDetailsModal from '../components/LogDetailsModal';
 import AdminUsersModal from '../components/AdminUsersModal';
+import ManageQueriesModal from '../components/ManageQueriesModal';
 import './ChatPage.css';
 
 // Truncated summary with "more" / "less" toggle
@@ -51,6 +52,11 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  
+  // Custom Quick Queries
+  const [quickQueries, setQuickQueries] = useState([]);
+  const [isQueriesModalOpen, setIsQueriesModalOpen] = useState(false);
+  
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -79,14 +85,31 @@ export default function ChatPage({ currentUser, onLogout }) {
       if (data.success && Array.isArray(data.sessions)) {
         setSessions(data.sessions);
       }
-    } catch (e) {
-      console.warn('Could not load sessions from DB:', e);
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
     }
   }, [onLogout]);
 
+  // Fetch user-specific quick queries
+  const fetchQueries = useCallback(async () => {
+    try {
+      const API_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:3002/api/queries'
+        : `http://${window.location.hostname}:3002/api/queries`;
+      const res = await fetch(API_URL, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (data.success) {
+        setQuickQueries(data.queries);
+      }
+    } catch (err) {
+      console.error('Failed to fetch quick queries:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadSessionsFromDB();
-  }, [loadSessionsFromDB]);
+    fetchQueries();
+  }, [loadSessionsFromDB, fetchQueries]);
 
   // Auto-scroll
   useEffect(() => {
@@ -111,7 +134,6 @@ export default function ChatPage({ currentUser, onLogout }) {
 
       const history = messages
         .filter(m => m.type === 'text' || m.type === 'agent_response')
-        .slice(-10)
         .map(m => ({
           role: m.role || 'assistant',
           content: m.text || m.summary || ''
@@ -444,6 +466,8 @@ export default function ChatPage({ currentUser, onLogout }) {
           onDeleteSession={handleDeleteSession}
           currentUser={currentUser}
           onOpenAdminModal={() => setIsAdminModalOpen(true)}
+          quickQueries={quickQueries}
+          onManageQueries={() => setIsQueriesModalOpen(true)}
         />
 
         {/* Mobile sidebar overlay */}
@@ -604,6 +628,18 @@ export default function ChatPage({ currentUser, onLogout }) {
             isOpen={isAdminModalOpen}
             onClose={() => setIsAdminModalOpen(false)}
             currentUser={currentUser}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Manage Custom Quick Queries Modal */}
+      <AnimatePresence>
+        {isQueriesModalOpen && (
+          <ManageQueriesModal
+            isOpen={isQueriesModalOpen}
+            onClose={() => setIsQueriesModalOpen(false)}
+            queries={quickQueries}
+            fetchQueries={fetchQueries}
           />
         )}
       </AnimatePresence>

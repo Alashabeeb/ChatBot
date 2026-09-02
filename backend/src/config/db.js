@@ -81,8 +81,20 @@ export function initDatabase() {
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
     `);
+    // 5. Quick Queries Table (User-specific custom queries)
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS quick_queries (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            label TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            icon_name TEXT DEFAULT 'MessageSquare',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+    `);
 
-    // 5. Seed Default Admin User if no admin exists
+    // 6. Seed Default Admin User if no admin exists
     const adminCheck = db.prepare("SELECT id, username FROM users WHERE role = 'admin'").get();
     if (!adminCheck) {
         const adminId = 'user_admin_root';
