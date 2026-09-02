@@ -195,6 +195,80 @@
   color: var(--danger);
 }
 
+/* Settings Dropdown */
+.settings-dropdown-wrapper {
+  position: relative;
+}
+
+.settings-trigger-btn {
+  transition: all 0.2s ease;
+}
+
+.settings-trigger-btn:hover {
+  color: var(--accent) !important;
+}
+
+.spin-gear {
+  animation: spin-gear-anim 0.5s ease;
+}
+
+@keyframes spin-gear-anim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(90deg); }
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+.settings-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 100;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+}
+
+.settings-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-menu-danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+
+.settings-menu-divider {
+  height: 1px;
+  background: var(--border-secondary);
+  margin: 4px 8px;
+}
+
 /* ---------- Body ---------- */
 .chat-body {
   display: flex;

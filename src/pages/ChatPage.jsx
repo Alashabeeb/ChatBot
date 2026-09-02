@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown, Square, Users, User } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown, Square, Users, User, Settings } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ChatMessage, { TypingDots } from '../components/ChatMessage';
 import DataCard from '../components/DataCard';
@@ -50,6 +50,7 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [modalData, setModalData] = useState(null);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -376,25 +377,57 @@ export default function ChatPage({ currentUser, onLogout }) {
             <span className="user-name-label">{currentUser?.username || 'User'}</span>
           </div>
 
-          {/* Admin User Management Button (Only visible if role === 'admin') */}
-          {currentUser?.role === 'admin' && (
+          {/* Settings Dropdown */}
+          <div className="settings-dropdown-wrapper">
             <button
-              className="icon-btn admin-badge-btn"
-              onClick={() => setIsAdminModalOpen(true)}
-              title="User Management (Admin)"
-              aria-label="User Management"
+              className="icon-btn settings-trigger-btn"
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              aria-label="Settings"
+              title="Settings"
             >
-              <Users size={16} />
-              <span className="admin-btn-text">Users</span>
+              <Settings size={18} className={isSettingsOpen ? 'spin-gear' : ''} />
             </button>
-          )}
 
-          <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
-          <button className="icon-btn logout-btn" onClick={onLogout} aria-label="Logout" title="Sign Out">
-            <LogOut size={18} />
-          </button>
+            <AnimatePresence>
+              {isSettingsOpen && (
+                <>
+                  <div className="settings-backdrop" onClick={() => setIsSettingsOpen(false)} />
+                  <motion.div
+                    className="settings-dropdown-menu"
+                    initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    {currentUser?.role === 'admin' && (
+                      <button
+                        className="settings-menu-item"
+                        onClick={() => { setIsAdminModalOpen(true); setIsSettingsOpen(false); }}
+                      >
+                        <Users size={15} />
+                        <span>User Management</span>
+                      </button>
+                    )}
+                    <button
+                      className="settings-menu-item"
+                      onClick={() => { toggleTheme(); setIsSettingsOpen(false); }}
+                    >
+                      <span style={{ fontSize: '15px' }}>{theme === 'dark' ? '☀️' : '🌙'}</span>
+                      <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+                    </button>
+                    <div className="settings-menu-divider" />
+                    <button
+                      className="settings-menu-item settings-menu-danger"
+                      onClick={() => { setIsSettingsOpen(false); onLogout(); }}
+                    >
+                      <LogOut size={15} />
+                      <span>Sign Out</span>
+                    </button>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
 
