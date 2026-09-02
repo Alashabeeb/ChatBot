@@ -172,21 +172,6 @@ export default function Sidebar({
         </div>
         
         <div className="sidebar-footer">
-          {currentUser?.role === 'admin' && (
-            <motion.button 
-               className="admin-sidebar-btn"
-               whileHover={{ scale: 1.02 }}
-               whileTap={{ scale: 0.98 }}
-               onClick={() => {
-                 if (onOpenAdminModal) onOpenAdminModal();
-                 if (window.innerWidth < 768) onClose();
-               }}
-            >
-              <Users size={16} />
-              <span>User Management</span>
-            </motion.button>
-          )}
-
           <div className="sidebar-user-pill">
             <div className="sidebar-user-avatar">
               {currentUser?.role === 'admin' ? <Shield size={14} /> : <User size={14} />}
