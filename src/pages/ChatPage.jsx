@@ -506,6 +506,9 @@ export default function ChatPage({ currentUser, onLogout }) {
                         onClick={async () => {
                           let finalLogs = m.raw_logs;
                           if (!finalLogs || finalLogs.length === 0) {
+                            // OPEN MODAL WITH LOADING STATE
+                            setModalData({ isLoading: true, source: m.source, summary: m.summary, totalHits: m.total_hits });
+                            
                             try {
                               const API_URL = window.location.hostname === 'localhost'
                                 ? `http://localhost:3002/api/sessions/messages/${m.id}/logs`
@@ -521,6 +524,7 @@ export default function ChatPage({ currentUser, onLogout }) {
                               console.error('Failed to fetch raw logs', e);
                             }
                           }
+                          // UPDATE MODAL WITH ACTUAL LOGS
                           setModalData({ logs: finalLogs || [], source: m.source, summary: m.summary, totalHits: m.total_hits });
                         }}
                       >

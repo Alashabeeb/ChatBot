@@ -62,7 +62,7 @@ function topN(list, n = 3) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
 }
 
-export default function LogDetailsModal({ logs = [], source, totalHits }) {
+export default function LogDetailsModal({ logs = [], source, totalHits, isLoading }) {
   const [expandedRow, setExpandedRow] = useState(null);
   const [visibleCount, setVisibleCount] = useState(100);
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,6 +92,19 @@ export default function LogDetailsModal({ logs = [], source, totalHits }) {
   const topIPs = useMemo(() => topN(parsed.map((p) => p.srcip)), [parsed]);
   const topUsers = useMemo(() => topN(parsed.map((p) => p.user)), [parsed]);
   const topHosts = useMemo(() => topN(parsed.map((p) => p.host)), [parsed]);
+
+  if (isLoading) {
+    return (
+      <div className="log-details" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
+        <div className="typing-indicator" style={{ display: 'flex', gap: '5px', marginBottom: '15px' }}>
+          <span style={{ width: '8px', height: '8px', background: 'var(--accent, #00ff88)', borderRadius: '50%', animation: 'typing 1.4s infinite ease-in-out both' }}></span>
+          <span style={{ width: '8px', height: '8px', background: 'var(--accent, #00ff88)', borderRadius: '50%', animation: 'typing 1.4s infinite ease-in-out both', animationDelay: '0.2s' }}></span>
+          <span style={{ width: '8px', height: '8px', background: 'var(--accent, #00ff88)', borderRadius: '50%', animation: 'typing 1.4s infinite ease-in-out both', animationDelay: '0.4s' }}></span>
+        </div>
+        <div style={{ color: 'var(--text-secondary, #aaa)', fontSize: '14px' }}>Loading massive payload from database...</div>
+      </div>
+    );
+  }
 
   if (!logs.length) {
     return (
