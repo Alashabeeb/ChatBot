@@ -4,6 +4,7 @@ import {
     createSession,
     getSessionMessages,
     saveSessionMessage,
+    getMessageLogs,
     deleteSession,
     clearAllSessions
 } from '../controllers/session.controller.js';
@@ -20,6 +21,7 @@ router.delete('/', clearAllSessions);
 
 router.get('/:id/messages', getSessionMessages);
 router.post('/:id/messages', saveSessionMessage);
+router.get('/messages/:msgId/logs', getMessageLogs);
 router.delete('/:id', deleteSession);
 
 export default router;

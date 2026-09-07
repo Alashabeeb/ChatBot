@@ -503,7 +503,26 @@ export default function ChatPage({ currentUser, onLogout }) {
                     <div className="agent-response-actions">
                       <button 
                         className="view-logs-btn"
-                        onClick={() => setModalData({ logs: m.raw_logs, source: m.source, summary: m.summary, totalHits: m.total_hits })}
+                        onClick={async () => {
+                          let finalLogs = m.raw_logs;
+                          if (!finalLogs || finalLogs.length === 0) {
+                            try {
+                              const API_URL = window.location.hostname === 'localhost'
+                                ? `http://localhost:3002/api/sessions/messages/${m.id}/logs`
+                                : `http://${window.location.hostname}:3002/api/sessions/messages/${m.id}/logs`;
+                              const res = await fetch(API_URL, { headers: getAuthHeaders() });
+                              const data = await res.json();
+                              if (data.success) {
+                                finalLogs = data.logs;
+                                // Cache it locally
+                                m.raw_logs = finalLogs;
+                              }
+                            } catch(e) {
+                              console.error('Failed to fetch raw logs', e);
+                            }
+                          }
+                          setModalData({ logs: finalLogs || [], source: m.source, summary: m.summary, totalHits: m.total_hits });
+                        }}
                       >
                         <FileText size={14} />
                         View Full Details

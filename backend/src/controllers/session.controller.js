@@ -70,6 +70,16 @@ export async function saveSessionMessage(req, res) {
     }
 }
 
+export async function getMessageLogs(req, res) {
+    try {
+        const { msgId } = req.params;
+        const logs = MessageModel.getRawLogsById(msgId, req.user.id);
+        return res.json({ success: true, logs });
+    } catch (error) {
+        return res.status(500).json({ type: 'error', error: error.message });
+    }
+}
+
 export async function deleteSession(req, res) {
     try {
         const { id } = req.params;

@@ -35,7 +35,7 @@ export class MessageModel {
 
     static listBySessionId(sessionId, userId) {
         const rows = db.prepare(`
-            SELECT id, session_id, user_id, role, type, text, summary, raw_logs, total_hits, created_at
+            SELECT id, session_id, user_id, role, type, text, summary, total_hits, created_at
             FROM messages
             WHERE session_id = ? AND user_id = ?
             ORDER BY created_at ASC
@@ -49,9 +49,23 @@ export class MessageModel {
             type: row.type,
             text: row.text,
             summary: row.summary,
-            raw_logs: row.raw_logs ? JSON.parse(row.raw_logs) : [],
             total_hits: row.total_hits,
             timestamp: row.created_at
         }));
+    }
+
+    static getRawLogsById(msgId, userId) {
+        const row = db.prepare(`
+            SELECT raw_logs
+            FROM messages
+            WHERE id = ? AND user_id = ?
+        `).get(msgId, userId);
+        
+        if (!row || !row.raw_logs) return [];
+        try {
+            return JSON.parse(row.raw_logs);
+        } catch(e) {
+            return [];
+        }
     }
 }
