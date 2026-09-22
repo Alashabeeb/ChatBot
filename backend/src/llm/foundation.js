@@ -4,8 +4,9 @@ import { LLM_API_URL } from '../config/env.js';
 /**
  * Handles communication with the Foundation-sec-8B model.
  */
-export async function askFoundation(prompt, systemInstruction, conversationHistory = []) {
+export async function askFoundation(prompt, systemInstruction, conversationHistory = [], options = {}) {
     try {
+        const { maxTokens, timeout = 0 } = options;
         const messages = [
             { role: "system", content: systemInstruction }
         ];
@@ -16,10 +17,13 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
 
         messages.push({ role: "user", content: prompt });
 
-        const response = await axios.post(LLM_API_URL, {
+        const requestBody = {
             model: 'foundation-sec-8b-instruct',
             messages
-        }, { timeout: 0 });
+        };
+        if (maxTokens) requestBody.max_tokens = maxTokens;
+
+        const response = await axios.post(LLM_API_URL, requestBody, { timeout });
         
         return response.data.choices[0].message.content.trim();
     } catch (error) {

@@ -47,7 +47,7 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedSources, setSelectedSources] = useState(['wazuh']);
+  const [selectedSources, setSelectedSources] = useState(['wazuh', 'firewall']);
   const [modalData, setModalData] = useState(null);
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
@@ -568,12 +568,8 @@ export default function ChatPage({ currentUser, onLogout }) {
                            Wazuh (SIEM)
                          </label>
                          <label className="dropdown-item">
-                           <input type="checkbox" checked={selectedSources.includes('hisec')} onChange={() => setSelectedSources(p => p.includes('hisec') ? p.filter(s => s !== 'hisec') : [...p, 'hisec'])} />
-                           HiSec (Threat)
-                         </label>
-                         <label className="dropdown-item">
-                           <input type="checkbox" checked={selectedSources.includes('honeypot')} onChange={() => setSelectedSources(p => p.includes('honeypot') ? p.filter(s => s !== 'honeypot') : [...p, 'honeypot'])} />
-                           Honeypot
+                           <input type="checkbox" checked={selectedSources.includes('firewall')} onChange={() => setSelectedSources(p => p.includes('firewall') ? p.filter(s => s !== 'firewall') : [...p, 'firewall'])} />
+                           Firewall (Wazuh)
                          </label>
                       </motion.div>
                     )}

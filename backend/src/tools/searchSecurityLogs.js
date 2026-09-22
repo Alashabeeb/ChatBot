@@ -37,6 +37,12 @@ export const searchSecurityLogsTool = {
                 type: 'string', 
                 description: 'A free-text keyword string to match against log descriptions. Remove stop-words and time references.',
                 default: ''
+            },
+            sourceScope: {
+                type: 'string',
+                description: 'Internal source scope. Use "firewall" for Wazuh firewall signals, "non_firewall" for other Wazuh alerts, or "all" when no source split is required.',
+                enum: ['all', 'firewall', 'non_firewall'],
+                default: 'all'
             }
         },
         required: ['timeRange', 'intent']

@@ -7,7 +7,7 @@ import { httpsAgent } from '../config/https.js';
  * Searches underlying data lakes or SIEM indexes for security logs matching specific criteria.
  */
 export async function searchSecurityLogs(params) {
-    const { timeRange, lteTime, minSeverity, extractedIPs, intent, cleanedSearchText } = params;
+    const { timeRange, lteTime, minSeverity, extractedIPs, intent, cleanedSearchText, sourceScope = 'all' } = params;
 
     const timeFilter = { gte: timeRange };
     if (lteTime) timeFilter.lte = lteTime;
@@ -32,6 +32,30 @@ export async function searchSecurityLogs(params) {
 
     if (extractedIPs && extractedIPs.length > 0) {
         esQuery.query.bool.must.push({ multi_match: { query: extractedIPs[0], fields: ["*ip*", "*ip", "ip", "full_log", "agent.ip", "data.win.eventdata.ipAddress"], lenient: true } });
+    }
+
+    // Wazuh firewall integrations use different decoders and rule groups. This
+    // map captures the common identifiers while keeping all matching records in
+    // the normal wazuh-alerts index.
+    const firewallSignals = {
+        bool: {
+            should: [
+                'firewall', 'iptables', 'nftables', 'netfilter', 'ufw',
+                'pfsense', 'fortigate', 'pan-os', 'palo alto', 'cisco asa'
+            ].flatMap(signal => [
+                { match: { 'rule.groups': signal } },
+                { match_phrase: { 'rule.description': signal } },
+                { match_phrase: { full_log: signal } },
+                { match: { 'decoder.name': signal } }
+            ]),
+            minimum_should_match: 1
+        }
+    };
+
+    if (sourceScope === 'firewall') {
+        esQuery.query.bool.must.push(firewallSignals);
+    } else if (sourceScope === 'non_firewall') {
+        esQuery.query.bool.must_not = [firewallSignals];
     }
 
     if (intent === 'brute_force') {
@@ -80,6 +104,7 @@ export async function searchSecurityLogs(params) {
     return {
         rawData,
         totalHits,
-        targetIndex
+        targetIndex,
+        sourceScope
     };
 }

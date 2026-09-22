@@ -10,6 +10,8 @@ import { searchSecurityLogsTool } from '../tools/searchSecurityLogs.js';
 import { getEndpointStatusTool } from '../tools/getEndpointStatus.js';
 import { lookupThreatIntelTool } from '../tools/lookupThreatIntel.js';
 import { searchMemoryTool } from '../tools/searchMemory.js';
+import { blockIpAction, blockIpActionSchema } from '../tools/blockIpAction.js';
+import { checkProcessList, checkProcessListSchema } from '../tools/checkProcessList.js';
 
 // Memory Subsystem
 import { memoryManager } from '../memory/manager.js';
@@ -20,11 +22,21 @@ registry.registerTool(getEndpointStatusTool);
 registry.registerTool(lookupThreatIntelTool);
 registry.registerTool(searchMemoryTool);
 
+// Register the new action tools
+registry.registerTool({
+    ...blockIpActionSchema,
+    execute: blockIpAction
+});
+registry.registerTool({
+    ...checkProcessListSchema,
+    execute: checkProcessList
+});
+
 /**
  * Phase 4 AI Agent Runtime Coordinator
  * Implements two-stage LLM workflow: Planning & Reasoning, with structured observability and MEMORY LIFECYCLE.
  */
-export async function runAgentWorkflow(text, history, userId = 'default_user_1') {
+export async function runAgentWorkflow(text, history, userId = 'default_user_1', sources = []) {
     const context = new AgentContext(text, history, userId);
     const telemetry = {
         planningDuration: 0,
@@ -48,7 +60,7 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
     const planStart = Date.now();
     // Pass the preContextStr as part of the history context for the planner
     const enrichedHistory = [...context.conversationHistory, { role: "system", content: preContextStr }];
-    const plan = await generateLLMPlan(text, enrichedHistory);
+    let plan = await generateLLMPlan(text, enrichedHistory);
     telemetry.planningDuration = Date.now() - planStart;
     
     if (plan.length === 0) {
@@ -57,6 +69,26 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
             text: 'I could not determine how to help with that request based on my available tools.'
         };
     }
+
+    // Split log searches into non-firewall Wazuh events and firewall events so
+    // selecting both sources always adds firewall evidence without counting the
+    // same record twice. Endpoint-only requests do not need a log search.
+    const selectedSources = new Set(Array.isArray(sources) ? sources : []);
+    const wantsWazuh = selectedSources.has('wazuh') || selectedSources.has('all');
+    const wantsFirewall = selectedSources.has('firewall') || selectedSources.has('all');
+    const logScopes = wantsWazuh && wantsFirewall
+        ? ['non_firewall', 'firewall']
+        : wantsFirewall
+            ? ['firewall']
+            : ['non_firewall'];
+
+    plan = plan.flatMap(instruction => {
+        if (instruction.tool !== 'searchSecurityLogs') return instruction;
+        return logScopes.map(sourceScope => ({
+            ...instruction,
+            parameters: { ...instruction.parameters, sourceScope }
+        }));
+    });
 
     // ==========================================
     // 2. Execution Phase
@@ -84,6 +116,7 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
     let totalHits = 0;
     let rawLogsToReturn = [];
     let sourceLabel = 'agent-runtime';
+    const sourceLabels = new Set();
 
     for (const result of rawEvidence) {
         if (!result.success) continue;
@@ -91,7 +124,7 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
         if (result.tool === 'getEndpointStatus') {
             totalHits += result.data.total || 0;
             rawLogsToReturn = result.data.data || [];
-            sourceLabel = result.data.url || sourceLabel;
+            sourceLabels.add('Wazuh Agents');
             structuredEvidence.evidence[result.tool] = {
                 total: result.data.total,
                 data: result.data.data
@@ -99,8 +132,11 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
         } 
         else if (result.tool === 'searchSecurityLogs') {
             totalHits += result.data.totalHits || 0;
-            rawLogsToReturn = result.data.rawData || [];
-            sourceLabel = result.data.targetIndex || sourceLabel;
+            rawLogsToReturn = [...rawLogsToReturn, ...(result.data.rawData || [])];
+            const evidenceKey = result.data.sourceScope === 'firewall'
+                ? 'firewallLogs'
+                : 'searchSecurityLogs';
+            sourceLabels.add(result.data.sourceScope === 'firewall' ? 'Firewall (Wazuh)' : 'Wazuh');
 
             const minifiedLogs = (result.data.rawData || []).slice(0, 30).map(log => ({
                 time: log['@timestamp'] || log.vulnerability?.detected_at || 'N/A',
@@ -112,15 +148,16 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
                 cve: log.vulnerability?.id || 'N/A'
             }));
 
-            structuredEvidence.evidence[result.tool] = {
+            structuredEvidence.evidence[evidenceKey] = {
                 totalMatches: result.data.totalHits,
                 sampleLogs: minifiedLogs
             };
         }
-        else if (result.tool === 'lookupThreatIntel' || result.tool === 'searchMemory') {
+        else if (result.tool === 'lookupThreatIntel' || result.tool === 'searchMemory' || result.tool === 'blockIpAction' || result.tool === 'checkProcessList') {
             structuredEvidence.evidence[result.tool] = result.data;
         }
     }
+    if (sourceLabels.size > 0) sourceLabel = [...sourceLabels].join(' + ');
     telemetry.aggregationDuration = Date.now() - aggStart;
 
     // ==========================================
@@ -129,7 +166,7 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
     const reasonStart = Date.now();
     let finalSummary = '';
     
-    if (totalHits === 0 && structuredEvidence.summary.successful > 0 && !structuredEvidence.evidence.lookupThreatIntel && !structuredEvidence.evidence.searchMemory) {
+    if (totalHits === 0 && structuredEvidence.summary.successful > 0 && !structuredEvidence.evidence.lookupThreatIntel && !structuredEvidence.evidence.searchMemory && !structuredEvidence.evidence.blockIpAction && !structuredEvidence.evidence.checkProcessList) {
         finalSummary = `I searched the database and intelligence sources, but found zero matching alerts or data for your query.`;
     } else {
         const reasoningPrompt = `User Request: "${text}"\n\nStructured Evidence JSON:\n${JSON.stringify(structuredEvidence, null, 2)}`;
