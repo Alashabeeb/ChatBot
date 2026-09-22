@@ -22,7 +22,9 @@ export async function searchSecurityLogs(params) {
             }
         },
         sort: [{ "@timestamp": { order: "desc" } }],
-        size: 10000,
+        // The exact total is obtained by track_total_hits. Returning a bounded
+        // recent sample keeps the UI and reasoning pass responsive.
+        size: 200,
         track_total_hits: true
     };
 

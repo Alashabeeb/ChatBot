@@ -36,7 +36,7 @@ registry.registerTool({
  * Phase 4 AI Agent Runtime Coordinator
  * Implements two-stage LLM workflow: Planning & Reasoning, with structured observability and MEMORY LIFECYCLE.
  */
-export async function runAgentWorkflow(text, history, userId = 'default_user_1', sources = []) {
+export async function runAgentWorkflow(text, history, userId = 'default_user_1') {
     const context = new AgentContext(text, history, userId);
     const telemetry = {
         planningDuration: 0,
@@ -70,17 +70,9 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1',
         };
     }
 
-    // Split log searches into non-firewall Wazuh events and firewall events so
-    // selecting both sources always adds firewall evidence without counting the
-    // same record twice. Endpoint-only requests do not need a log search.
-    const selectedSources = new Set(Array.isArray(sources) ? sources : []);
-    const wantsWazuh = selectedSources.has('wazuh') || selectedSources.has('all');
-    const wantsFirewall = selectedSources.has('firewall') || selectedSources.has('all');
-    const logScopes = wantsWazuh && wantsFirewall
-        ? ['non_firewall', 'firewall']
-        : wantsFirewall
-            ? ['firewall']
-            : ['non_firewall'];
+    // Every security log search includes Wazuh and Firewall evidence. Their
+    // scopes are mutually exclusive, so records are never counted twice.
+    const logScopes = ['non_firewall', 'firewall'];
 
     plan = plan.flatMap(instruction => {
         if (instruction.tool !== 'searchSecurityLogs') return instruction;
@@ -117,6 +109,7 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1',
     let rawLogsToReturn = [];
     let sourceLabel = 'agent-runtime';
     const sourceLabels = new Set();
+    const sourceTotals = {};
 
     for (const result of rawEvidence) {
         if (!result.success) continue;
@@ -136,7 +129,9 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1',
             const evidenceKey = result.data.sourceScope === 'firewall'
                 ? 'firewallLogs'
                 : 'searchSecurityLogs';
-            sourceLabels.add(result.data.sourceScope === 'firewall' ? 'Firewall (Wazuh)' : 'Wazuh');
+            const sourceName = result.data.sourceScope === 'firewall' ? 'Firewall (Wazuh)' : 'Wazuh';
+            sourceLabels.add(sourceName);
+            sourceTotals[sourceName] = (sourceTotals[sourceName] || 0) + (result.data.totalHits || 0);
 
             const minifiedLogs = (result.data.rawData || []).slice(0, 30).map(log => ({
                 time: log['@timestamp'] || log.vulnerability?.detected_at || 'N/A',
@@ -150,6 +145,7 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1',
 
             structuredEvidence.evidence[evidenceKey] = {
                 totalMatches: result.data.totalHits,
+                sampleSize: minifiedLogs.length,
                 sampleLogs: minifiedLogs
             };
         }
@@ -157,6 +153,8 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1',
             structuredEvidence.evidence[result.tool] = result.data;
         }
     }
+    structuredEvidence.summary.totalMatches = totalHits;
+    structuredEvidence.summary.sourceTotals = sourceTotals;
     if (sourceLabels.size > 0) sourceLabel = [...sourceLabels].join(' + ');
     telemetry.aggregationDuration = Date.now() - aggStart;
 

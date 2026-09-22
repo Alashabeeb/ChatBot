@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown, Square, Users, User, Settings } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ChatMessage, { TypingDots } from '../components/ChatMessage';
 import DataCard from '../components/DataCard';
@@ -34,7 +34,7 @@ const INITIAL_MESSAGES = [
   {
     role: 'assistant',
     type: 'text',
-    text: 'Welcome to SOC ChatBot. I am connected to the Wazuh SIEM manager. Ask me about agent status, recent alerts, authentication failures, or CVE vulnerabilities.',
+    text: 'Welcome to SOC ChatBot. I am connected to Wazuh and Firewall telemetry. Ask me about agent status, recent alerts, authentication failures, firewall activity, or CVE vulnerabilities.',
     timestamp: new Date().toISOString()
   }
 ];
@@ -47,9 +47,7 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedSources, setSelectedSources] = useState(['wazuh', 'firewall']);
   const [modalData, setModalData] = useState(null);
-  const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
@@ -143,7 +141,7 @@ export default function ChatPage({ currentUser, onLogout }) {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ text, sources: selectedSources, history }),
+        body: JSON.stringify({ text, history }),
         signal
       });
       
@@ -155,8 +153,10 @@ export default function ChatPage({ currentUser, onLogout }) {
       const data = await response.json();
       
       if (!response.ok) {
-        if (data.type === 'text') return data;
-        throw new Error(data.error || 'Network error or server is down');
+        return {
+          type: 'text',
+          text: `⚠️ ${data.error || `Request failed with status ${response.status}.`}`
+        };
       }
       
       return data;
@@ -545,38 +545,6 @@ export default function ChatPage({ currentUser, onLogout }) {
           {/* Composer */}
           <div className="chat-composer-container">
             <div className="composer-wrapper">
-              
-              {/* Internal agent dropdown */}
-              <div className="composer-toolbar">
-                <div className="agent-dropdown-container">
-                  <button 
-                    className="agent-dropdown-btn"
-                    onClick={() => setIsAgentDropdownOpen(!isAgentDropdownOpen)}
-                  >
-                    <span>{selectedSources.length > 0 ? selectedSources.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ') : 'Select Source'}</span>
-                    <ChevronDown size={14} />
-                  </button>
-
-                  <AnimatePresence>
-                    {isAgentDropdownOpen && (
-                      <motion.div 
-                        className="agent-dropdown-menu"
-                        initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}
-                      >
-                         <label className="dropdown-item">
-                           <input type="checkbox" checked={selectedSources.includes('wazuh')} onChange={() => setSelectedSources(p => p.includes('wazuh') ? p.filter(s => s !== 'wazuh') : [...p, 'wazuh'])} />
-                           Wazuh (SIEM)
-                         </label>
-                         <label className="dropdown-item">
-                           <input type="checkbox" checked={selectedSources.includes('firewall')} onChange={() => setSelectedSources(p => p.includes('firewall') ? p.filter(s => s !== 'firewall') : [...p, 'firewall'])} />
-                           Firewall (Wazuh)
-                         </label>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
-
               <div className="composer-inner">
                 <textarea
                   ref={textareaRef}

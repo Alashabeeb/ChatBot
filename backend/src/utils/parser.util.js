@@ -64,6 +64,10 @@ export function extractTimeRange(text, lowerText) {
     let timeLabel = 'Last 24 Hours';
     let chronoTimeStr = '';
 
+    if (/\b(right now|currently|current(?:ly)?|just now)\b/i.test(lowerText)) {
+        return { timeRange: 'now-15m', lteTime, timeLabel: 'Past 15 Minutes', chronoTimeStr: 'right now' };
+    }
+
     const parsedDates = chrono.parse(text);
 
     if (parsedDates.length > 0) {

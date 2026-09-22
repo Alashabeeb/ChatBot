@@ -8,7 +8,7 @@ import { SYSTEM_PROMPTS } from '../llm/prompts.js';
  * the agent runtime. This keeps the browser and direct backend prompts on the
  * same model-backed path instead of returning a canned greeting from the API.
  */
-export async function processChatQuery(text, sources, history = [], userId = 'default_user_1') {
+export async function processChatQuery(text, history = [], userId = 'default_user_1') {
     const normalizedText = typeof text === 'string' ? text.trim() : '';
     if (!normalizedText) {
         return {
@@ -25,8 +25,7 @@ export async function processChatQuery(text, sources, history = [], userId = 'de
         const response = await askFoundation(
             normalizedText,
             SYSTEM_PROMPTS.CONVERSATIONAL_ASSISTANT,
-            Array.isArray(history) ? history.slice(-6) : [],
-            { maxTokens: 160, timeout: 10_000 }
+            Array.isArray(history) ? history.slice(-6) : []
         );
 
         if (!response) {
@@ -41,17 +40,8 @@ export async function processChatQuery(text, sources, history = [], userId = 'de
         };
     }
 
-    const hasSecuritySource = Array.isArray(sources)
-        && (sources.includes('wazuh') || sources.includes('firewall') || sources.includes('all'));
-    if (!hasSecuritySource) {
-        return {
-            type: 'text',
-            text: 'Please select Wazuh or Firewall from the Agents dropdown to query security data.'
-        };
-    }
-
     // ==========================================
-    // DELEGATE TO AI AGENT RUNTIME
+    // DELEGATE TO THE WAZUH + FIREWALL AGENT RUNTIME
     // ==========================================
-    return await runAgentWorkflow(normalizedText, history, userId, sources);
+    return await runAgentWorkflow(normalizedText, history, userId);
 }

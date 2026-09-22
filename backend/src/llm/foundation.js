@@ -27,7 +27,7 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         
         return response.data.choices[0].message.content.trim();
     } catch (error) {
-        console.warn("Foundation-sec-8B Unreachable. Falling back to rule-based logic.", error.message);
+        console.warn('Foundation-sec-8B request failed.', error.message);
         return null;
     }
 }
