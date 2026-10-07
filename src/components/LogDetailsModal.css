@@ -311,3 +311,13 @@
   line-height: 1.4;
   white-space: pre-wrap;
 }
+/* Which tool a record came from (F-33). */
+.source-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-secondary, rgba(255,255,255,0.12));
+  color: var(--text-secondary, #aaa);
+  font-size: 11.5px;
+  white-space: nowrap;
+}

@@ -208,10 +208,6 @@ export default function LoginPage({ onLogin }) {
               <span className="lp-cursor">|</span>
             </h1>
             <p className="lp-subtitle">Advanced Threat Analytics System</p>
-            <div className="lp-secure-badge">
-              <Lock size={11} />
-              <span>ENCRYPTED SESSION</span>
-            </div>
           </div>
 
           {/* Form */}
@@ -287,26 +283,11 @@ export default function LoginPage({ onLogin }) {
 
           {/* Footer */}
           <div className="lp-card-footer">
-            <span>Enterprise-grade security</span>
-            <span className="lp-dot">•</span>
-            <span>Connected to Wazuh SIEM</span>
+            <span>Authorized SOC personnel only</span>
           </div>
         </div>
       </div>
 
-      {/* Bottom Status Bar */}
-      <div className="lp-status-bar">
-        <div className="lp-status-item">
-          <span className="lp-status-dot lp-pulse" />
-          <span>SYSTEM ONLINE</span>
-        </div>
-        <div className="lp-status-item">
-          <span>TLS 1.3 ENCRYPTED</span>
-        </div>
-        <div className="lp-status-item">
-          <span>v2.0.0</span>
-        </div>
-      </div>
     </div>
   );
 }

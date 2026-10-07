@@ -25,7 +25,8 @@ function extractFields(log) {
   return {
     time: log['@timestamp'] || log.timestamp || null,
     level: typeof rule.level === 'number' ? rule.level : 0,
-    description: rule.description || 'Unlabeled event',
+    // Wazuh agent inventory records have no rule; describe them as what they are.
+    description: rule.description || (log.status && log.name ? `Wazuh agent: ${log.status}` : 'Unlabeled event'),
     ruleId: rule.id || '—',
     groups: rule.groups || [],
     mitreIds: rule.mitre?.id || [],
@@ -62,12 +63,14 @@ function topN(list, n = 3) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
 }
 
-export default function LogDetailsModal({ logs = [], source, totalHits, isLoading }) {
+/** entries: [{ record, source }] from labelRawLogs(); source names the tool each record came from (F-33). */
+export default function LogDetailsModal({ entries = [], source, totalHits, isLoading }) {
+  const logs = entries;
   const [expandedRow, setExpandedRow] = useState(null);
   const [visibleCount, setVisibleCount] = useState(100);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const parsed = useMemo(() => logs.map((log) => ({ raw: log, ...extractFields(log) })), [logs]);
+  const parsed = useMemo(() => entries.map(({ record, source: from }) => ({ raw: record, from: from || '—', ...extractFields(record) })), [entries]);
   
   const filteredParsed = useMemo(() => {
     if (!searchQuery.trim()) return parsed;
@@ -77,6 +80,7 @@ export default function LogDetailsModal({ logs = [], source, totalHits, isLoadin
       p.user.toLowerCase().includes(lower) ||
       p.host.toLowerCase().includes(lower) ||
       p.description.toLowerCase().includes(lower) ||
+      p.from.toLowerCase().includes(lower) ||
       p.email.toLowerCase().includes(lower) ||
       (p.mitreIds && p.mitreIds.some(m => String(m).toLowerCase().includes(lower))) ||
       (p.mitreTechniques && p.mitreTechniques.some(m => String(m).toLowerCase().includes(lower)))
@@ -168,6 +172,7 @@ export default function LogDetailsModal({ logs = [], source, totalHits, isLoadin
           <thead>
             <tr>
               <th className="col-expand" />
+              <th>Source</th>
               <th>Time</th>
               <th>Severity</th>
               <th>Rule</th>
@@ -180,7 +185,7 @@ export default function LogDetailsModal({ logs = [], source, totalHits, isLoadin
           <tbody>
             {filteredParsed.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary, #aaa)' }}>
+                <td colSpan={9} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary, #aaa)' }}>
                   No events match your filter.
                 </td>
               </tr>
@@ -196,6 +201,7 @@ export default function LogDetailsModal({ logs = [], source, totalHits, isLoadin
                     <td className="col-expand">
                       {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </td>
+                    <td><span className="source-chip">{p.from}</span></td>
                     <td className="mono">{formatTime(p.time)}</td>
                     <td>
                       <span className={`sev-badge sev-${sev.key}`}>{sev.label}</span>
@@ -217,7 +223,7 @@ export default function LogDetailsModal({ logs = [], source, totalHits, isLoadin
                   </tr>
                   {isOpen && (
                     <tr className="raw-row">
-                      <td colSpan={8} style={{ padding: 0 }}>
+                      <td colSpan={9} style={{ padding: 0 }}>
                         <HumanReadableLog log={p.raw} />
                       </td>
                     </tr>

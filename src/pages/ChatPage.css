@@ -561,3 +561,18 @@
   white-space: pre-wrap;
   word-wrap: break-word;
 }
+
+/* Answer summary in the details modal (F-40): Markdown, collapsed to a few lines until expanded. */
+.summary-md {
+  max-height: 4.8em;
+  overflow: hidden;
+  position: relative;
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent);
+  mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+.summary-md.is-expanded {
+  max-height: 40vh;
+  overflow-y: auto;
+  -webkit-mask-image: none;
+  mask-image: none;
+}

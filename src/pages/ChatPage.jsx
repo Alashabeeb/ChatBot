@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings, Database } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import ChatMessage, { PendingSearch } from '../components/ChatMessage';
+import ChatMessage, { PendingSearch, Markdown } from '../components/ChatMessage';
+import { labelRawLogs } from '../lib/rawLogs';
 import { streamChat, buildHistory, ChatHttpError } from '../lib/chatStream';
 import DataCard from '../components/DataCard';
 import ChartCard from '../components/ChartCard';
@@ -12,30 +13,20 @@ import AdminUsersModal from '../components/AdminUsersModal';
 import ManageQueriesModal from '../components/ManageQueriesModal';
 import './ChatPage.css';
 
-// raw_logs is keyed per tool ({ searchSecurityLogs: [...], getEndpointStatus: [...] }).
-// Messages saved before that change hold a plain array.
-function flattenRawLogs(rawLogs) {
-  if (Array.isArray(rawLogs)) return rawLogs;
-  if (rawLogs && typeof rawLogs === 'object') return Object.values(rawLogs).flat();
-  return [];
-}
-
-// Truncated summary with "more" / "less" toggle
-function TruncatedSummary({ text, wordLimit = 20 }) {
+// The answer's summary in the details modal: rendered as Markdown (F-40), collapsed to a few lines
+// until expanded. Collapsing by height, not by cutting words, keeps the Markdown intact.
+function CollapsibleSummary({ text }) {
   const [expanded, setExpanded] = useState(false);
   if (!text) return null;
-  const words = text.split(/\s+/);
-  const isTruncated = words.length > wordLimit;
-  const displayText = !expanded && isTruncated ? words.slice(0, wordLimit).join(' ') + '…' : text;
   return (
-    <p className="log-modal-subtitle">
-      {displayText}
-      {isTruncated && (
-        <button className="summary-toggle-btn" onClick={() => setExpanded(!expanded)}>
-          {expanded ? 'show less' : 'more'}
-        </button>
-      )}
-    </p>
+    <div className="log-modal-subtitle">
+      <div className={`summary-md ${expanded ? 'is-expanded' : ''}`}>
+        <Markdown text={text} />
+      </div>
+      <button className="summary-toggle-btn" onClick={() => setExpanded(!expanded)}>
+        {expanded ? 'show less' : 'more'}
+      </button>
+    </div>
   );
 }
 
@@ -442,12 +433,7 @@ export default function ChatPage({ currentUser, onLogout }) {
           </div>
         </div>
 
-        <div className="header-center">
-          <div className="status-indicator">
-            <span className="status-dot pulsing" />
-            Live Monitoring Active
-          </div>
-        </div>
+        <div className="header-center" />
         
         <div className="header-right">
           {/* User Profile Chip */}
@@ -563,8 +549,8 @@ export default function ChatPage({ currentUser, onLogout }) {
                       <button 
                         className="view-logs-btn"
                         onClick={async () => {
-                          let finalLogs = flattenRawLogs(m.raw_logs);
-                          if (finalLogs.length === 0) {
+                          let finalEntries = labelRawLogs(m.raw_logs);
+                          if (finalEntries.length === 0) {
                             // OPEN MODAL WITH LOADING STATE
                             setModalData({ isLoading: true, source: m.source, summary: m.summary, totalHits: m.total_hits });
                             
@@ -575,7 +561,7 @@ export default function ChatPage({ currentUser, onLogout }) {
                               const res = await fetch(API_URL, { headers: getAuthHeaders() });
                               const data = await res.json();
                               if (data.success) {
-                                finalLogs = flattenRawLogs(data.logs);
+                                finalEntries = labelRawLogs(data.logs);
                                 // Cache it locally
                                 m.raw_logs = data.logs;
                               }
@@ -584,7 +570,7 @@ export default function ChatPage({ currentUser, onLogout }) {
                             }
                           }
                           // UPDATE MODAL WITH ACTUAL LOGS
-                          setModalData({ logs: finalLogs || [], source: m.source, summary: m.summary, totalHits: m.total_hits });
+                          setModalData({ entries: finalEntries, source: m.source, summary: m.summary, totalHits: m.total_hits });
                         }}
                       >
                         <FileText size={14} />
@@ -669,14 +655,14 @@ export default function ChatPage({ currentUser, onLogout }) {
               <div className="log-modal-header">
                 <div>
                   <h2>Event Details</h2>
-                  <TruncatedSummary text={modalData.summary} wordLimit={20} />
+                  <CollapsibleSummary text={modalData.summary} />
                 </div>
                 <button className="icon-btn" onClick={() => setModalData(null)}>
                   <X size={20} />
                 </button>
               </div>
               <div className="log-modal-body">
-                <LogDetailsModal logs={modalData.logs} source={modalData.source} totalHits={modalData.totalHits} />
+                <LogDetailsModal entries={modalData.entries} source={modalData.source} totalHits={modalData.totalHits} isLoading={modalData.isLoading} />
               </div>
             </div>
           </motion.div>
