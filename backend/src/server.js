@@ -2,7 +2,7 @@
 import './config/startupCheck.js';
 import express from 'express';
 import cors from 'cors';
-import { PORT, OPENSEARCH_URL } from './config/env.js';
+import { PORT } from './config/env.js';
 import { initDatabase } from './config/db.js';
 import authRoutes from './routes/auth.routes.js';
 import sessionRoutes from './routes/session.routes.js';
@@ -36,5 +36,4 @@ app.use('/api/chat', authenticateToken, chatRoutes);
 
 app.listen(PORT, () => {
     console.log(`🚀 AI SOC Proxy Server running on port ${PORT}`);
-    console.log(`OpenSearch URL: ${OPENSEARCH_URL}`);
 });

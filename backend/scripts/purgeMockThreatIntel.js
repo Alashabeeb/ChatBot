@@ -173,6 +173,24 @@ export function restoreQuarantined(db) {
     return { restored, failed };
 }
 
+/** Dry runs open the database read-only (F-32); only --apply and --restore may write. */
+export function openDatabase(dbPath, { write }) {
+    return write ? new Database(dbPath) : new Database(dbPath, { readonly: true, fileMustExist: true });
+}
+
+/**
+ * True when this file is being run as a script rather than imported (tests import it). On Windows the
+ * comparison ignores case: "c:\\..." and "C:\\..." are the same file (F-36).
+ */
+export function isMainModule(argv1, moduleUrl, platform = process.platform) {
+    if (!argv1) return false;
+    const windows = platform === 'win32';
+    const p = windows ? path.win32 : path.posix;
+    const scriptPath = p.resolve(argv1);
+    const modulePath = p.resolve(fileURLToPath(moduleUrl, { windows }));
+    return windows ? scriptPath.toLowerCase() === modulePath.toLowerCase() : scriptPath === modulePath;
+}
+
 function parseArgs(argv) {
     const args = { apply: false, restore: false, signatureOnly: false, db: DEFAULT_DB, quarantine: null };
     for (let i = 0; i < argv.length; i++) {
@@ -206,8 +224,7 @@ function main() {
         console.error(`Database not found: ${args.db}`);
         process.exit(1);
     }
-    // Existence is checked above. Not using fileMustExist: its open flags also stop ATTACH from creating the quarantine file.
-    const db = new Database(args.db);
+    const db = openDatabase(args.db, { write: args.apply || args.restore });
     db.pragma('foreign_keys = ON');
 
     try {
@@ -253,7 +270,7 @@ function main() {
     }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(process.argv[1], import.meta.url)) {
     try {
         process.exitCode = main();
     } catch (error) {

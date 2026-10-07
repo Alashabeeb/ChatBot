@@ -131,3 +131,26 @@ test('CLI: dry run reports, --apply quarantines, --restore puts records back', (
     assert.deepEqual(mainIds(), [...ids(CONTAMINATED), ...ids(CLEAN)].sort());
     assert.deepEqual(idsIn(quarantinePath, 'SELECT source_id AS id FROM records'), []);
 });
+
+test('F-32: a dry run opens the database read-only; only --apply/--restore open it for writing', async () => {
+    const { openDatabase } = await import('../scripts/purgeMockThreatIntel.js');
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'purge-ro-')), 'x.db');
+    new Database(file).close();
+    const ro = openDatabase(file, { write: false });
+    assert.equal(ro.readonly, true);
+    assert.throws(() => ro.exec('CREATE TABLE t (x)'), /readonly/i);
+    ro.close();
+    const rw = openDatabase(file, { write: true });
+    assert.equal(rw.readonly, false);
+    rw.close();
+});
+
+test('F-36: the "run as a script" check works on Windows paths whatever the drive-letter case', async () => {
+    const { isMainModule } = await import('../scripts/purgeMockThreatIntel.js');
+    const url = 'file:///C:/soc-capture/backend/scripts/purgeMockThreatIntel.js';
+    assert.equal(isMainModule('c:\\soc-capture\\backend\\scripts\\purgeMockThreatIntel.js', url, 'win32'), true);
+    assert.equal(isMainModule('C:\\soc-capture\\backend\\scripts\\purgeMockThreatIntel.js', url, 'win32'), true);
+    assert.equal(isMainModule('C:\\soc-capture\\backend\\scripts\\other.js', url, 'win32'), false);
+    assert.equal(isMainModule('/srv/app/scripts/purgeMockThreatIntel.js', 'file:///srv/app/scripts/purgeMockThreatIntel.js', 'linux'), true);
+    assert.equal(isMainModule(undefined, url, 'win32'), false);
+});

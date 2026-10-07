@@ -83,7 +83,10 @@ test('server starts when JWT_SECRET is set (control)', async () => {
                 reject(new Error(`server exited with ${code}:\n${output}`));
             });
         });
+        await new Promise(resolve => setTimeout(resolve, 300)); // collect the rest of the startup output
         assert.doesNotMatch(output, /FATAL/);
+        // F-35: internal service addresses are not written to the startup log.
+        assert.ok(!output.includes('http://opensearch.test'), `startup log leaks the OpenSearch URL:\n${output}`);
         assert.ok(fs.existsSync(path.join(tmpDir, dbName)));
     } finally {
         child.removeAllListeners('exit');
