@@ -1,6 +1,6 @@
 # Merge Decisions
 
-Every judgement call made while consolidating `ChatBot-main` (Solomon's hardening work, Sep 16–18) with `ChatBot/` `main` (Abdulhakeem's Push 25/26, Sep 22). The plan's own instructions are not repeated here; this file records what the plan left open, and why each choice was made. Items marked **⚠ Review** are the ones most worth a second opinion.
+Every judgement call made while bringing Solomon's hardening work (Sep 16–18, done outside this repository and imported once on 2026-10-07) together with Abdulhakeem's Push 25/26 (Sep 22). **This repository on `main` is the only working copy; the folder the earlier work came from is not part of the project.** The plan's own instructions are not repeated here; this file records what the plan left open, and why each choice was made. Items marked **⚠ Review** are the ones most worth a second opinion.
 
 ---
 
@@ -103,8 +103,16 @@ The request: *"talk to the LLM directly from the frontend … like ChatGPT, Gemi
 | A12 | **The fake model used for the UI check lives only in the session scratchpad.** It isn't committed. | After `blockIpAction`, no new fake-data generators go into the codebase. Tests use their own in-test fake server. |
 | A13 | **Quick queries use the current mode.** | They're user-defined prompts; in Chat mode a data query gets the Search Wazuh button. **⚠ Review:** they could always search instead. |
 
+### Working on `main` only (2026-10-07)
+
+| # | Decision | Why |
+|---|---|---|
+| W1 | **All work happens on `main`.** `merge-hardening` and `assistant-chat` were fast-forwarded into it (no merge commit; `main` was their ancestor) and the extra branches retired. | Requested. One branch, one source of truth. |
+| W2 | **Production deploys from `main`, which now carries every change, not just the hotfix.** `docs/DEPLOY.md` replaces the hotfix-only instructions. | Pulling `main` now migrates the database, requires `JWT_SECRET` and adds frontend packages. The old hotfix doc would have caused an outage. |
+| W3 | **Past commit messages that mention the old folder are left as they are.** | They're already on GitHub; rewriting pushed history would break every other clone. |
+
 ### Left for later phases on purpose
 
 - **The conversational path still returns HTTP 503 when the model is down** — Phase 2.3.
-- **`docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` still describe `ChatBot-main`** (F-47) — the runbook in Phase 3, the map after Phase 2.
+- **`docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` predate the consolidation** (F-47) — runbook paths fixed; full rebuild in Phase 3, the map after Phase 2.
 - **The local branch `import/chatbot-main` is kept.** Its commit is a parent of the merge either way; you can delete the branch name before pushing if you don't want it on the remote.

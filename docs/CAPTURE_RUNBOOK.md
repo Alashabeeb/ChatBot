@@ -32,12 +32,12 @@ Instructions for one trip to the Windows machine that runs the backend. By the e
 
 Run the tests; all must pass:
 ```bash
-cd /Users/solomonalor/Documents/ChatBot-main/backend && npm test
+cd /Users/solomonalor/Documents/ChatBot/backend && npm test
 ```
 
 Build the bundle. It contains only `package.json`, `package-lock.json`, `.gitignore`, `src/` and `scripts/`, with no `.env`, `node_modules`, `data`, `fixtures`, `quarantine` or tests:
 ```bash
-cd /Users/solomonalor/Documents/ChatBot-main && zip -r ~/Desktop/soc-capture-bundle.zip backend/package.json backend/package-lock.json backend/.gitignore backend/src backend/scripts -x '*.DS_Store'
+cd /Users/solomonalor/Documents/ChatBot && zip -r ~/Desktop/soc-capture-bundle.zip backend/package.json backend/package-lock.json backend/.gitignore backend/src backend/scripts -x '*.DS_Store'
 ```
 
 Expected: `adding: …` lines. The file `~/Desktop/soc-capture-bundle.zip` is about 90 KB (about 200 KB unpacked, 73 files).
@@ -251,11 +251,11 @@ The live backend was never modified. Only the backup file was added next to its 
 Put the five files into `backend/fixtures/`. That folder is gitignored; create it if it doesn't exist.
 
 ```bash
-cd /Users/solomonalor/Documents/ChatBot-main/backend && node scripts/replayFixtures.js
+cd /Users/solomonalor/Documents/ChatBot/backend && node scripts/replayFixtures.js
 ```
 Expected:
 ```
-[Replay] 4 fixture(s) from /Users/solomonalor/Documents/ChatBot-main/backend/fixtures
+[Replay] 4 fixture(s) from /Users/solomonalor/Documents/ChatBot/backend/fixtures
 [Replay] OK       anything-unusual-on-the-ad-servers.json request_id=… hits=4210 report=fallback_model_unavailable
 ...
 [Replay] 4/4 matched the capture.

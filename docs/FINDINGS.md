@@ -2,13 +2,13 @@
 
 Issues found while working on the codebase. **None of these are fixed** unless marked. They are logged here on purpose, so fixes can be scoped and scheduled separately.
 
-Opened 2026-09-16 in the separate `ChatBot-main` folder; merged into this repo on 2026-10-07 (branch `merge-hardening`, see `docs/MERGE_DECISIONS.md`). Paths are relative to the repo root.
+Opened 2026-09-16; all fixes and findings live in this repository on `main` since 2026-10-07 (history in `docs/MERGE_DECISIONS.md`). Paths are relative to the repo root.
 
 **Status by phase of the October consolidation plan:**
 - **Phase 0 (hotfix on `main`):** F-42 mitigated.
-- **Phase 1 (merge):** everything under "Fixed" below is now on `merge-hardening`. F-43 and F-44 fixed.
-- **Assistant chat (branch `assistant-chat`, before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
-- Production runs `main`, so **none of the Phase 1 fixes are live until `merge-hardening` is merged and deployed.** Until then production still has F-00, F-01, F-06, F-08a and F-43.
+- **Phase 1 (merge):** everything under "Fixed" below. F-43 and F-44 fixed.
+- **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
+- **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
 ---
 
@@ -92,7 +92,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Mitigation:** both unregistered. A model plan naming either one is rejected by `validateExecutionPlan`. Tests: `backend/test/toolRegistry.test.js`. `backend/scripts/auditFabricatedActions.js` (`8fef3d9`, `13f741d`) lists saved messages and memories containing the fabricated text. Deploy steps: `docs/HOTFIX_DEPLOY.md`.
 - **Still to do (Phase 2.1):** return an explicit "not implemented" result like threat intel; require human approval for any future blocking action; extend the purge script to quarantine `IP_BLOCKED` / `unknown_miner` content.
 
-### F-43: Security questions were answered without searching any data. **FIXED on `merge-hardening` 2026-10-07 (Phase 1)**; still live in production
+### F-43: Security questions were answered without searching any data. **FIXED on `main` 2026-10-07 (Phase 1)**; live in production until `main` is deployed
 - **Was (Push 25/26 on `main`):** `processChatQuery` sent every message *without* a security keyword to the chat-only model path, which never searches. `hasSecurityKeyword` matches whole words only, so `alerts`, `failed`, `logons`, `vulnerabilities`, `unusual` and `suspicious` carry no keyword. All four capture questions — "what is going on right now", "anything unusual on the AD servers", "show me failed logons today", "what are the top alerts this week" — plus questions like "how many vulnerabilities on web-01" were answered by the model with no data at all.
 - **Fix:** `isConversational()` in `backend/src/services/chat.service.js`. Only clearly conversational messages (greetings and chat phrases with no security keyword) go to the conversational path; everything else goes to the data-searching runtime. Tests: `backend/test/routing.test.js`; mutation-checked against the keyword-only rule.
 - **Remaining:** the whole-word keyword matching itself is still weak (see F-45). It now only decides whether a chat-phrase message is excluded from conversation, so a miss errs toward searching, not toward answering blind.
@@ -112,7 +112,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Problem:** every error becomes `null` or a quiet switch to the legacy planner, with only a `console.warn`.
 - **Partly addressed by F-01:** the response now flags a rule-based plan and a report the model didn't write. The actual error (timeout, HTTP status, bad JSON) still isn't passed on or recorded anywhere except the console.
 
-**F-03: No timeout on model calls. Likely cause of slow and stalled runs.** **Fixed for general chat (`assistant-chat`):** `/api/chat/stream` has a first-token timeout and an idle timeout, tested against a server that never answers and one that stalls mid-answer. **Still open for the Search Wazuh pipeline** (`askFoundation`), due in Phase 2.2.
+**F-03: No timeout on model calls. Likely cause of slow and stalled runs.** **Fixed for general chat:** `/api/chat/stream` has a first-token timeout and an idle timeout, tested against a server that never answers and one that stalls mid-answer. **Still open for the Search Wazuh pipeline** (`askFoundation`), due in Phase 2.2.
 - **Where:** `backend/src/llm/foundation.js`, the `axios.post` in `askFoundation` passes `{ timeout: 0 }`, which in axios means no timeout.
 - **Refused vs. hung:** if the model server *refuses* the connection (down, wrong port), axios rejects straight away, the `catch` fires, and the run falls back to rule-based logic. If the server *hangs* (accepts the connection but never answers, for example stuck on load or an overloaded GPU), nothing ever throws. The promise stays pending forever, so the `catch` that would trigger the fallback never runs.
 - **Effect on a run:**
@@ -281,7 +281,7 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Where:** `src/pages/ChatPage.jsx`, `TruncatedSummary` inside the modal header, which renders `m.summary` as plain text while the chat bubble renders it through `parseToTokens`.
 - **Problem:** asterisks show literally, e.g. `**Model unavailable: this response was not generated by a model.**`. Pre-existing for any bold in a report; now guaranteed visible, because the F-01 fallback notice is bold. Observed in the UI smoke test on 2026-09-18.
 
-**F-41: In replay mode the source label reads `undefined/...`.** **FIXED on `merge-hardening` (Phase 1):** `source` is now the joined source names ("Wazuh", "Firewall (Wazuh)", "Wazuh Agents"), not a URL. See MERGE_DECISIONS R2.
+**F-41: In replay mode the source label reads `undefined/...`.** **FIXED on `main` (Phase 1):** `source` is now the joined source names ("Wazuh", "Firewall (Wazuh)", "Wazuh Agents"), not a URL. See MERGE_DECISIONS R2.
 - **Where:** `backend/src/integrations/wazuh.integration.js` builds `apiUrl` from `WAZUH_SERVER_API_URL`, which is unset when running against fixtures; the modal header then shows `undefined/agents`.
 - **Problem:** cosmetic and replay-only (a real deployment has the URLs set), but it surfaces the string `undefined` to the analyst. Same root as F-30.
 
@@ -293,7 +293,7 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 
 **F-46: The firewall fan-out also runs on vulnerability searches.** Due in Phase 2.5. A firewall-scoped query against the vulnerability index costs a request and returns nothing useful.
 
-**F-47: `docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` still describe the `ChatBot-main` folder.** Paths, line numbers and the bundle contents predate the merge. The runbook is rebuilt in Phase 3; the pipeline map needs a refresh after Phase 2.
+**F-47: `docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` predate the 2026-10-07 consolidation.** *Runbook paths now point at this repo; its bundle contents and steps are rebuilt in Phase 3.* Paths, line numbers and the bundle contents predate the merge. The runbook is rebuilt in Phase 3; the pipeline map needs a refresh after Phase 2.
 
 **F-48: Two capture questions route by phrase, not by data need.** *Since assistant chat (2026-10-07) this only affects Search Wazuh mode, where the user has explicitly asked to search; the fix there is to route only bare greetings to conversation.*
 - **Where:** `isConversational()`.

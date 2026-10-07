@@ -1,6 +1,6 @@
 # Assistant Chat
 
-How SOC Assistant's general chat works: a ChatGPT-style conversation with the model, alongside the existing Search Wazuh investigations. Added 2026-10-07 on branch `assistant-chat`.
+How SOC Assistant's general chat works: a ChatGPT-style conversation with the model, alongside the existing Search Wazuh investigations. Added 2026-10-07.
 
 ## The two modes
 
