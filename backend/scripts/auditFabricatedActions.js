@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Read-only audit of saved chat messages for text produced by fabricated tool results:
+ * Read-only audit of saved chat messages and agent memories for text produced by fabricated
+ * tool results. Memories matter because they are fed back to the planner as context.
  *   - blockIpAction:   "IP_BLOCKED" / "...to the firewall blocklist." (no IP was ever blocked)
  *   - checkProcessList: "unknown_miner" (hard-coded fake process, returned for every endpoint)
  *   - lookupThreatIntel mock: "Mock threat intelligence response ..." / "Real integration pending"
@@ -35,6 +36,25 @@ function parseArgs(argv) {
     return dbPath;
 }
 
+function findHits(row, columns) {
+    const hits = [];
+    for (const column of columns) {
+        const value = row[column];
+        if (typeof value !== 'string' || !value) continue;
+        for (const { name, pattern } of SIGNATURES) {
+            const m = value.match(pattern);
+            if (m) hits.push({ name, column, text: snippet(value, m.index, m[0].length) });
+        }
+    }
+    return hits;
+}
+
+function printHits(hits) {
+    for (const h of hits) console.log(`    [${h.name}] ${h.column}: ${h.text}`);
+}
+
+const matchedNames = hits => [...new Set(hits.map(h => h.name))].join(', ');
+
 function snippet(value, index, length) {
     const start = Math.max(0, index - 60);
     const end = Math.min(value.length, index + length + 60);
@@ -62,34 +82,53 @@ function main() {
         `).all();
 
         console.log(`Database: ${dbPath} (opened read-only)`);
-        console.log(`Searched messages.${searched.join(', messages.')} for: ${SIGNATURES.map(s => s.name).join(', ')}`);
+        console.log(`Searched messages.${searched.join(', messages.')} and memories.content for: ${SIGNATURES.map(s => s.name).join(', ')}`);
         console.log('');
 
+        const userLabel = row => (row.username ? `${row.username} (${row.user_id})` : row.user_id);
+
+        console.log('--- messages ---');
         let matched = 0;
         for (const row of rows) {
-            const hits = [];
-            for (const column of searched) {
-                const value = row[column];
-                if (typeof value !== 'string' || !value) continue;
-                for (const { name, pattern } of SIGNATURES) {
-                    const m = value.match(pattern);
-                    if (m) hits.push({ name, column, text: snippet(value, m.index, m[0].length) });
-                }
-            }
+            const hits = findHits(row, searched);
             if (hits.length === 0) continue;
             matched++;
-            const user = row.username ? `${row.username} (${row.user_id})` : row.user_id;
             const session = row.session_id ? `  session=${row.session_id}` : '';
-            console.log(`${row.created_at}  user=${user}  message=${row.id}${session}  matched: ${[...new Set(hits.map(h => h.name))].join(', ')}`);
-            for (const h of hits) console.log(`    [${h.name}] ${h.column}: ${h.text}`);
+            console.log(`${row.created_at}  user=${userLabel(row)}  message=${row.id}${session}  matched: ${matchedNames(hits)}`);
+            printHits(hits);
+        }
+
+        console.log('--- memories ---');
+        let memoryMatched = 0;
+        const memoryColumns = columnsOf('memories');
+        if (!memoryColumns.includes('content')) {
+            console.log('memories: table not present in this database; nothing to search.');
+        } else {
+            const memories = db.prepare(`
+                SELECT mem.id, mem.created_at, mem.user_id, mem.content
+                ${memoryColumns.includes('category') ? ', mem.category' : ''}
+                ${hasUsers ? ', u.username' : ''}
+                FROM memories mem
+                ${hasUsers ? 'LEFT JOIN users u ON u.id = mem.user_id' : ''}
+                ORDER BY mem.created_at
+            `).all();
+            for (const row of memories) {
+                const hits = findHits(row, ['content']);
+                if (hits.length === 0) continue;
+                memoryMatched++;
+                const category = row.category ? `  category=${row.category}` : '';
+                console.log(`${row.created_at}  user=${userLabel(row)}  memory=${row.id}${category}  matched: ${matchedNames(hits)}`);
+                printHits(hits);
+            }
         }
 
         console.log('');
-        if (matched === 0) {
+        if (matched === 0 && memoryMatched === 0) {
             console.log('No fabricated-action text found.');
             return 0;
         }
         console.log(`${matched} message(s) matched.`);
+        console.log(`${memoryMatched} memory record(s) matched.${memoryMatched ? ' These are fed back to the planner as context; plan to quarantine them.' : ''}`);
         console.log('Note: "blocklist" also matches legitimate advice (e.g. "consider adding this IP to the blocklist"). Review those snippets by hand; IP_BLOCKED, unknown_miner and the threat-intel mock text are definite.');
         return 2;
     } finally {

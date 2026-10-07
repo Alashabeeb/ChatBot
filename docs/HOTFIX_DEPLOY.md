@@ -85,17 +85,23 @@ If it doesn't start, see Rollback.
 ```powershell
 cd $BACKEND; node scripts\auditFabricatedActions.js; $LASTEXITCODE
 ```
-It searches every saved message for `IP_BLOCKED`, `blocklist`, `unknown_miner` and the old threat-intel mock text. For each match it prints one line with **date, user, message ID** and what matched, followed by the snippet:
+It searches every saved **message** and every agent **memory** for `IP_BLOCKED`, `blocklist`, `unknown_miner` and the old threat-intel mock text. Memories matter because they're fed back to the planner as context on later questions. For each match it prints one line with **date, user, message or memory ID** and what matched, followed by the snippet:
 ```
+--- messages ---
 2026-09-23T10:00:00Z  user=analyst1 (u1)  message=msg_a_…  session=sess_…  matched: IP_BLOCKED
     [IP_BLOCKED] summary: …"action":"IP_BLOCKED","target_ip":"203.0.113.9"…
+--- memories ---
+2026-09-25T12:05:00Z  user=analyst1 (u1)  memory=6f1c…  category=investigation  matched: unknown_miner
+    [unknown_miner] content: …Endpoint 001 runs unknown_miner as root…
 ```
+It ends with a count for each: `N message(s) matched.` and `M memory record(s) matched.`
 **Exit code:** `0` means nothing found, `2` means matches were listed, `1` means an error (the message says what).
 
 **Reading the results:**
 - **`IP_BLOCKED` and `unknown_miner` are definite.** That analyst was shown a fake block or a fake miner. Each one needs a human follow-up: was any decision made on it?
 - **`threat-intel mock`** means a fake "not malicious" verdict reached that answer. It will keep appearing for new messages until the merge ships.
 - **`blocklist`** also matches legitimate advice ("consider adding this IP to the blocklist"). Read those snippets by hand.
+- **Any memory match** will keep influencing the planner until it's removed. Don't delete anything by hand. Report the list; quarantining them safely comes with the upcoming merge.
 
 ### 7. Smoke test in the UI
 

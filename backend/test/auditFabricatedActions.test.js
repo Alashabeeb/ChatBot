@@ -76,3 +76,40 @@ test('exits 0 on a clean database and 1 (without creating a file) when the datab
     assert.equal(missing.status, 1);
     assert.ok(!fs.existsSync(missingPath), 'must not create a database');
 });
+
+test('also audits the memories table, which is fed back to the planner as context', () => {
+    const dbPath = path.join(tmpDir, 'memories.db');
+    seed(dbPath);
+    const db = new Database(dbPath);
+    db.exec(`CREATE TABLE memories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, category TEXT NOT NULL, term_type TEXT NOT NULL,
+             content TEXT NOT NULL, relevance_score INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    const add = db.prepare("INSERT INTO memories VALUES (?, ?, 'investigation', 'long-term', ?, 80, ?, ?)");
+    add.run('mem_miner', 'u1', JSON.stringify({ summary: 'Endpoint 001 runs unknown_miner as root.', keyEntities: ['001'] }), '2026-09-25T12:05:00Z', '2026-09-25T12:05:00Z');
+    add.run('mem_block', 'u2', JSON.stringify({ summary: '203.0.113.9 was added to the firewall blocklist (IP_BLOCKED).', keyEntities: [] }), '2026-09-23T10:05:00Z', '2026-09-23T10:05:00Z');
+    add.run('mem_clean', 'u1', JSON.stringify({ summary: '12 failed SSH logons from one host.', keyEntities: [] }), '2026-09-26T00:00:00Z', '2026-09-26T00:00:00Z');
+    db.close();
+    const before = hash(dbPath);
+
+    const result = run('--db', dbPath);
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    for (const [id, date, user, signature] of [
+        ['mem_miner', '2026-09-25T12:05:00Z', 'analyst1', 'unknown_miner'],
+        ['mem_block', '2026-09-23T10:05:00Z', 'admin', 'IP_BLOCKED']
+    ]) {
+        const line = result.stdout.split('\n').find(l => l.includes(`memory=${id}`));
+        assert.ok(line, `${id} missing from output:\n${result.stdout}`);
+        assert.ok(line.includes(date) && line.includes(user) && line.includes(signature), `${id} line incomplete: ${line}`);
+    }
+    assert.ok(!result.stdout.includes('mem_clean'), 'clean memory must not be listed');
+    assert.match(result.stdout, /4 message\(s\) matched/);
+    assert.match(result.stdout, /2 memory record\(s\) matched/);
+    assert.equal(hash(dbPath), before, 'database must be unchanged');
+});
+
+test('works on a database that has no memories table', () => {
+    const dbPath = path.join(tmpDir, 'no-memories.db');
+    seed(dbPath);
+    const result = run('--db', dbPath);
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stdout, /memories: table not present/);
+});
