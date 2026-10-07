@@ -1,5 +1,6 @@
 import { memoryGateway } from './gateway.js';
 import { MemoryRecord } from './models.js';
+import { runLog } from '../observability/runContext.js';
 
 /**
  * Handles saving memory while enforcing short/long term policies.
@@ -13,6 +14,6 @@ export async function writeMemory(userId, category, content, policies = {}) {
     const record = new MemoryRecord(userId, category, termType, content, relevance);
     await memoryGateway.saveMemory(record);
     
-    console.log(`[Memory Writer] Saved ${termType} memory for user ${userId} in category ${category}.`);
+    runLog.info(`[Memory Writer] Saved ${termType} memory for user ${userId} in category ${category}.`);
     return record.id;
 }

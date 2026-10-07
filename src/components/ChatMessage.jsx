@@ -111,7 +111,6 @@ export default function ChatMessage({ message }) {
 export function TypingDots() {
   const phases = [
     '🔍 Querying SIEM database…',
-    '📡 Fetching threat intelligence…',
     '🧠 Analyzing threat patterns…',
     '🛡️ Correlating security events…',
     '📊 Generating threat report…',

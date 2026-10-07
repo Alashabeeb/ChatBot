@@ -12,6 +12,11 @@ backend/.env
 *.db-shm
 backend/data/
 
+# Captured security telemetry and quarantined records: real SIEM data, never commit.
+# No leading slash, so these match at any depth (e.g. backend/fixtures/, backend/quarantine/).
+fixtures/
+quarantine/
+
 # Logs
 logs
 *.log

@@ -5,7 +5,7 @@ import { GREETINGS, CONVERSATIONAL_PATTERNS, hasSecurityKeyword } from '../utils
  * Handles incoming chat messages by routing them to the AI Agent Runtime.
  * Preserves the zero-latency conversational fast-path for simple greetings.
  */
-export async function processChatQuery(text, sources, history = [], userId = 'default_user_1') {
+export async function processChatQuery(text, history = [], userId = 'default_user_1') {
     const lowerText = text.toLowerCase().trim();
 
     // ==========================================

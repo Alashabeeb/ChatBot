@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { WAZUH_USER, WAZUH_PASSWORD, WAZUH_SERVER_API_URL } from '../config/env.js';
 import { httpsAgent } from '../config/https.js';
+import { runLog } from '../observability/runContext.js';
+import { fixturesEnabled, replayHttp } from '../recording/replay.js';
+import { pathFromBase } from '../recording/common.js';
 
 let wazuhToken = null;
 let tokenExpiresAt = 0; // Epoch time
@@ -9,6 +12,10 @@ let tokenExpiresAt = 0; // Epoch time
  * Internal helper to manage Wazuh auth tokens.
  */
 async function getWazuhToken() {
+    // FIXTURES=1: API calls are replayed, so no real token is needed (and none was recorded).
+    if (fixturesEnabled()) {
+        return 'fixture-replay-token';
+    }
     if (wazuhToken && Date.now() < tokenExpiresAt) {
         return wazuhToken;
     }
@@ -25,7 +32,7 @@ async function getWazuhToken() {
         tokenExpiresAt = Date.now() + 14 * 60 * 1000; // 14 mins
         return wazuhToken;
     } catch (error) {
-        console.error("Failed to authenticate with Wazuh API:", error.message);
+        runLog.error("Failed to authenticate with Wazuh API:", error.message);
         throw new Error("Wazuh API Authentication Failed");
     }
 }
@@ -43,14 +50,17 @@ export async function getEndpointStatus(wqlStatus) {
         apiQuery.q = wqlStatus;
     }
     
-    const apiResponse = await axios.get(apiUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: apiQuery,
-        httpsAgent
-    });
+    const apiResponse = fixturesEnabled()
+        ? replayHttp('wazuh', pathFromBase(apiUrl, WAZUH_SERVER_API_URL), apiQuery)
+        : await axios.get(apiUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+            params: apiQuery,
+            httpsAgent
+        });
     
     return {
         url: apiUrl,
+        query: apiQuery,
         data: apiResponse.data.data.affected_items || [apiResponse.data.data],
         total: apiResponse.data.data.total_affected_items || 0
     };
@@ -65,15 +75,18 @@ export async function getManagerStatus() {
     const apiUrl = `${WAZUH_SERVER_API_URL}/manager/status`;
     const apiQuery = { pretty: true };
     
-    const apiResponse = await axios.get(apiUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: apiQuery,
-        httpsAgent
-    });
+    const apiResponse = fixturesEnabled()
+        ? replayHttp('wazuh', pathFromBase(apiUrl, WAZUH_SERVER_API_URL), apiQuery)
+        : await axios.get(apiUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+            params: apiQuery,
+            httpsAgent
+        });
     
     const data = apiResponse.data.data.affected_items || [apiResponse.data.data];
     return {
         url: apiUrl,
+        query: apiQuery,
         data,
         total: apiResponse.data.data.total_affected_items || data.length
     };

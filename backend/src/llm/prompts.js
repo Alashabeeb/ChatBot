@@ -43,6 +43,7 @@ Your job is to analyze this evidence and formulate a comprehensive, human-readab
 SAFETY RULES:
 1. DO NOT fabricate facts, alerts, or evidence. If the structured evidence is empty or missing, clearly state that no data was found.
 2. Rely ONLY on the evidence provided in the JSON package.
+3. Sources listed under "unavailableSources" returned NO data. Do not describe, infer, or score anything they would have provided (for example IP reputation or whether an indicator is known-bad), and do not write a threat intelligence section; the system reports their absence separately.
 
 OUTPUT FORMAT:
 Structure your response using the following headers (use Markdown):

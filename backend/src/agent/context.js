@@ -1,20 +1,21 @@
 import { randomUUID } from 'crypto';
+import { runLog } from '../observability/runContext.js';
 
 /**
  * Maintains the execution context during a single user request.
  * Request-scoped only. Persistent memory to be added in later phases.
  */
 export class AgentContext {
-    constructor(userRequest, conversationHistory = [], userId = 'default_user_1') {
-        this.requestId = randomUUID();
+    constructor(userRequest, conversationHistory = [], userId = 'default_user_1', requestId = randomUUID()) {
+        this.requestId = requestId;
         this.userId = userId;
         this.userRequest = userRequest;
         this.conversationHistory = conversationHistory;
         this.executionStart = Date.now();
         this.toolResults = [];
         this.errors = [];
-        
-        console.log(`[Context Initialized] RequestID: ${this.requestId}`);
+
+        runLog.info(`[Context Initialized] RequestID: ${this.requestId}`);
     }
 
     addToolResult(result) {

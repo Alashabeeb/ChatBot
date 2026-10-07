@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, ChevronDown, Square, Users, User, Settings } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ChatMessage, { TypingDots } from '../components/ChatMessage';
 import DataCard from '../components/DataCard';
@@ -10,6 +10,14 @@ import LogDetailsModal from '../components/LogDetailsModal';
 import AdminUsersModal from '../components/AdminUsersModal';
 import ManageQueriesModal from '../components/ManageQueriesModal';
 import './ChatPage.css';
+
+// raw_logs is keyed per tool ({ searchSecurityLogs: [...], getEndpointStatus: [...] }).
+// Messages saved before that change hold a plain array.
+function flattenRawLogs(rawLogs) {
+  if (Array.isArray(rawLogs)) return rawLogs;
+  if (rawLogs && typeof rawLogs === 'object') return Object.values(rawLogs).flat();
+  return [];
+}
 
 // Truncated summary with "more" / "less" toggle
 function TruncatedSummary({ text, wordLimit = 20 }) {
@@ -47,9 +55,7 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedSources, setSelectedSources] = useState(['wazuh']);
   const [modalData, setModalData] = useState(null);
-  const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
@@ -143,7 +149,7 @@ export default function ChatPage({ currentUser, onLogout }) {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ text, sources: selectedSources, history }),
+        body: JSON.stringify({ text, history }),
         signal
       });
       
@@ -192,7 +198,9 @@ export default function ChatPage({ currentUser, onLogout }) {
           summary: msg.summary || '',
           rawLogs: msg.raw_logs || null,
           totalHits: msg.total_hits || 0,
-          isNew: msg.isNew ? 1 : 0
+          isNew: msg.isNew ? 1 : 0,
+          // Links the saved report to its server-side run record.
+          requestId: msg.request_id || null
         })
       });
     } catch (e) {
@@ -504,8 +512,8 @@ export default function ChatPage({ currentUser, onLogout }) {
                       <button 
                         className="view-logs-btn"
                         onClick={async () => {
-                          let finalLogs = m.raw_logs;
-                          if (!finalLogs || finalLogs.length === 0) {
+                          let finalLogs = flattenRawLogs(m.raw_logs);
+                          if (finalLogs.length === 0) {
                             // OPEN MODAL WITH LOADING STATE
                             setModalData({ isLoading: true, source: m.source, summary: m.summary, totalHits: m.total_hits });
                             
@@ -516,9 +524,9 @@ export default function ChatPage({ currentUser, onLogout }) {
                               const res = await fetch(API_URL, { headers: getAuthHeaders() });
                               const data = await res.json();
                               if (data.success) {
-                                finalLogs = data.logs;
+                                finalLogs = flattenRawLogs(data.logs);
                                 // Cache it locally
-                                m.raw_logs = finalLogs;
+                                m.raw_logs = data.logs;
                               }
                             } catch(e) {
                               console.error('Failed to fetch raw logs', e);
@@ -545,41 +553,6 @@ export default function ChatPage({ currentUser, onLogout }) {
           {/* Composer */}
           <div className="chat-composer-container">
             <div className="composer-wrapper">
-              
-              {/* Internal agent dropdown */}
-              <div className="composer-toolbar">
-                <div className="agent-dropdown-container">
-                  <button 
-                    className="agent-dropdown-btn"
-                    onClick={() => setIsAgentDropdownOpen(!isAgentDropdownOpen)}
-                  >
-                    <span>{selectedSources.length > 0 ? selectedSources.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ') : 'Select Source'}</span>
-                    <ChevronDown size={14} />
-                  </button>
-
-                  <AnimatePresence>
-                    {isAgentDropdownOpen && (
-                      <motion.div 
-                        className="agent-dropdown-menu"
-                        initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}
-                      >
-                         <label className="dropdown-item">
-                           <input type="checkbox" checked={selectedSources.includes('wazuh')} onChange={() => setSelectedSources(p => p.includes('wazuh') ? p.filter(s => s !== 'wazuh') : [...p, 'wazuh'])} />
-                           Wazuh (SIEM)
-                         </label>
-                         <label className="dropdown-item">
-                           <input type="checkbox" checked={selectedSources.includes('hisec')} onChange={() => setSelectedSources(p => p.includes('hisec') ? p.filter(s => s !== 'hisec') : [...p, 'hisec'])} />
-                           HiSec (Threat)
-                         </label>
-                         <label className="dropdown-item">
-                           <input type="checkbox" checked={selectedSources.includes('honeypot')} onChange={() => setSelectedSources(p => p.includes('honeypot') ? p.filter(s => s !== 'honeypot') : [...p, 'honeypot'])} />
-                           Honeypot
-                         </label>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
 
               <div className="composer-inner">
                 <textarea

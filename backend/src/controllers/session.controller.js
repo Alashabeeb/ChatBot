@@ -1,5 +1,6 @@
 import { SessionModel } from '../models/Session.js';
 import { MessageModel } from '../models/Message.js';
+import { RunModel } from '../models/Run.js';
 
 export async function listSessions(req, res) {
     try {
@@ -37,7 +38,17 @@ export async function getSessionMessages(req, res) {
 export async function saveSessionMessage(req, res) {
     try {
         const { id: sessionId } = req.params;
-        const { id: msgId, role, type, text, summary, rawLogs, totalHits, isNew } = req.body;
+        const { id: msgId, role, type, text, summary, rawLogs, totalHits, isNew, requestId: claimedRequestId } = req.body;
+
+        // The client echoes back the request_id it received; only link runs this user actually owns.
+        let requestId = null;
+        if (claimedRequestId) {
+            if (typeof claimedRequestId === 'string' && RunModel.belongsToUser(claimedRequestId, req.user.id)) {
+                requestId = claimedRequestId;
+            } else {
+                console.warn(`[Sessions] Ignoring requestId not owned by user ${req.user.id}: ${String(claimedRequestId).slice(0, 80)}`);
+            }
+        }
 
         // Ensure session exists or create it
         let session = SessionModel.findById(sessionId, req.user.id);
@@ -61,7 +72,8 @@ export async function saveSessionMessage(req, res) {
             summary: summary || '',
             rawLogs: rawLogs || null,
             totalHits: totalHits || 0,
-            isNew: isNew ? 1 : 0
+            isNew: isNew ? 1 : 0,
+            requestId
         });
 
         return res.status(201).json({ success: true, message });

@@ -88,5 +88,5 @@ ChatBot/
 
 ## API Endpoints (Backend)
 - `POST /api/chat`: Main operational endpoint.
-  - **Payload**: `{ "text": "user query", "sources": ["wazuh"], "history": [] }`
+  - **Payload**: `{ "text": "user query", "history": [] }`
   - **Response**: Returns a JSON object containing the LLM summary, raw parsed logs, total accurate hit counts, and source execution details.
