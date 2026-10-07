@@ -10,8 +10,6 @@ import { searchSecurityLogsTool } from '../tools/searchSecurityLogs.js';
 import { getEndpointStatusTool } from '../tools/getEndpointStatus.js';
 import { lookupThreatIntelTool } from '../tools/lookupThreatIntel.js';
 import { searchMemoryTool } from '../tools/searchMemory.js';
-import { blockIpAction, blockIpActionSchema } from '../tools/blockIpAction.js';
-import { checkProcessList, checkProcessListSchema } from '../tools/checkProcessList.js';
 
 // Memory Subsystem
 import { memoryManager } from '../memory/manager.js';
@@ -22,15 +20,10 @@ registry.registerTool(getEndpointStatusTool);
 registry.registerTool(lookupThreatIntelTool);
 registry.registerTool(searchMemoryTool);
 
-// Register the new action tools
-registry.registerTool({
-    ...blockIpActionSchema,
-    execute: blockIpAction
-});
-registry.registerTool({
-    ...checkProcessListSchema,
-    execute: checkProcessList
-});
+// HOTFIX: blockIpAction and checkProcessList are NOT registered. Both return fabricated
+// results (a fake "IP blocked" confirmation; a hard-coded process list containing
+// "unknown_miner") that would reach the analyst as evidence. Do not register them until they
+// call a real system, and never let the planner trigger a blocking action on its own.
 
 /**
  * Phase 4 AI Agent Runtime Coordinator
