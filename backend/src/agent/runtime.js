@@ -222,8 +222,10 @@ async function runPipeline(run, text, history) {
     // Every security log search includes Wazuh and Firewall evidence. Their
     // scopes are mutually exclusive, so records are never counted twice.
     const logScopes = ['non_firewall', 'firewall'];
+    // Vulnerability searches are not split: firewall records never carry CVE data.
     const executionPlan = plan.flatMap(instruction => {
         if (instruction.tool !== 'searchSecurityLogs') return instruction;
+        if (instruction.parameters?.intent === 'vulnerabilities') return instruction;
         return logScopes.map(sourceScope => ({
             ...instruction,
             parameters: { ...instruction.parameters, sourceScope }
@@ -275,6 +277,14 @@ async function runPipeline(run, text, history) {
         if (logs.length > 0) rawLogsByTool[n === 1 ? counter : `${tool}#${n}${suffix}`] = logs;
     };
 
+    // Evidence for the model is keyed per tool call too (F-29): 'searchSecurityLogs',
+    // 'searchSecurityLogs#2', 'firewallLogs', 'firewallLogs#2', … so no call overwrites another.
+    const evidenceCounts = {};
+    const evidenceKey = base => {
+        evidenceCounts[base] = (evidenceCounts[base] || 0) + 1;
+        return evidenceCounts[base] === 1 ? base : `${base}#${evidenceCounts[base]}`;
+    };
+
     const inPlanOrder = [...rawEvidence].sort((a, b) => (a.planIndex ?? 0) - (b.planIndex ?? 0));
     for (const result of inPlanOrder) {
         if (!result.success) continue;
@@ -283,7 +293,7 @@ async function runPipeline(run, text, history) {
             totalHits += result.data.total || 0;
             addRawLogs(result.tool, result.data.data || []);
             sourceLabels.add('Wazuh Agents');
-            structuredEvidence.evidence[result.tool] = {
+            structuredEvidence.evidence[evidenceKey(result.tool)] = {
                 total: result.data.total,
                 data: result.data.data
             };
@@ -291,9 +301,7 @@ async function runPipeline(run, text, history) {
         else if (result.tool === 'searchSecurityLogs') {
             totalHits += result.data.totalHits || 0;
             addRawLogs(result.tool, result.data.rawData || [], result.data.sourceScope);
-            const evidenceKey = result.data.sourceScope === 'firewall'
-                ? 'firewallLogs'
-                : 'searchSecurityLogs';
+            const searchKey = evidenceKey(result.data.sourceScope === 'firewall' ? 'firewallLogs' : 'searchSecurityLogs');
             const sourceName = result.data.sourceScope === 'firewall' ? 'Firewall (Wazuh)' : 'Wazuh';
             sourceLabels.add(sourceName);
             sourceTotals[sourceName] = (sourceTotals[sourceName] || 0) + (result.data.totalHits || 0);
@@ -308,7 +316,7 @@ async function runPipeline(run, text, history) {
                 cve: log.vulnerability?.id || 'N/A'
             }));
 
-            structuredEvidence.evidence[evidenceKey] = {
+            structuredEvidence.evidence[searchKey] = {
                 totalMatches: result.data.totalHits,
                 sampleSize: minifiedLogs.length,
                 sampleLogs: minifiedLogs

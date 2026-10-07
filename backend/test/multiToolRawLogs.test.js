@@ -38,8 +38,9 @@ test('multi-tool run: every tool\'s raw logs are retained, keyed per tool in pla
     const response = await runAgentWorkflow('Auth failures, CVEs and agent status', [], USER_ID);
     await flushBackgroundWork();
 
-    // Two planned searches, each run as non-firewall and firewall halves.
-    assert.equal(searchCalls.length, 4);
+    // Two planned searches: the alerts search runs as non-firewall and firewall halves; the
+    // vulnerability search is not split (Phase 2.5), so 3 OpenSearch calls in total.
+    assert.equal(searchCalls.length, 3);
     assert.equal(wazuhCalls.length, 1);
 
     assert.deepEqual(Object.keys(response.raw_logs), ['searchSecurityLogs', 'getEndpointStatus', 'searchSecurityLogs#2']);
