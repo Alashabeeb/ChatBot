@@ -9,19 +9,30 @@ import { askFoundation, extractJSON } from '../llm/foundation.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
 import registry from '../llm/registry.js';
 import { validateExecutionPlan } from '../schemas/ExecutionPlan.schema.js';
+import { runLog, recordRunError } from '../observability/runContext.js';
+import { fixturesEnabled, replayPlan } from '../recording/replay.js';
 
 /**
  * Phase 3 LLM-Driven Planner
  * Interacts with Foundation-sec-8B to dynamically generate an execution plan.
+ * Returns { tools, source, thought, rawOutput, error }: source is 'model' or 'fallback_rules' (legacy planner used),
+ * rawOutput is the model's unparsed reply (null if none), error is why the model plan was rejected.
+ * With FIXTURES=1 the plan recorded at capture is returned instead (source 'fixture_replay'), so the
+ * queries built downstream are the same on every run.
  */
 export async function generateLLMPlan(text, history = []) {
+    if (fixturesEnabled()) {
+        return replayPlan(text);
+    }
+
+    let llmResponse = null;
     try {
         const availableTools = registry.listTools();
         const toolsContext = JSON.stringify(availableTools, null, 2);
         
         const prompt = `User Request: "${text}"\n\nAvailable Tools:\n${toolsContext}\n\nGenerate the execution plan.`;
         
-        const llmResponse = await askFoundation(prompt, SYSTEM_PROMPTS.AGENT_PLANNER_PROMPT, history);
+        llmResponse = await askFoundation(prompt, SYSTEM_PROMPTS.AGENT_PLANNER_PROMPT, history);
         
         if (!llmResponse) {
             throw new Error("LLM did not return a response.");
@@ -32,12 +43,13 @@ export async function generateLLMPlan(text, history = []) {
         // Strictly validate against our single schema contract
         validateExecutionPlan(planJson, registry);
         
-        console.log(`[Planner LLM Success] Generated plan with ${planJson.tools.length} tool(s). Thought: "${planJson.thought}"`);
-        return planJson.tools;
-        
+        runLog.info(`[Planner LLM Success] Generated plan with ${planJson.tools.length} tool(s). Thought: "${planJson.thought}"`);
+        return { tools: planJson.tools, source: 'model', thought: planJson.thought, rawOutput: llmResponse, error: null };
+
     } catch (error) {
-        console.warn(`[Planner LLM Failure] ${error.message}. Falling back to legacy planner.`);
-        return fallbackLegacyPlanner(text);
+        runLog.warn(`[Planner LLM Failure] ${error.message}. Falling back to legacy planner.`);
+        recordRunError('planner', error.message);
+        return { tools: fallbackLegacyPlanner(text), source: 'fallback_rules', thought: null, rawOutput: llmResponse, error: error.message };
     }
 }
 

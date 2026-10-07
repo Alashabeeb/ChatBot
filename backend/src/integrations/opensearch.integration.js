@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { OPENSEARCH_URL, WAZUH_USER, WAZUH_PASSWORD } from '../config/env.js';
 import { httpsAgent } from '../config/https.js';
+import { fixturesEnabled, replayHttp } from '../recording/replay.js';
+import { pathFromBase } from '../recording/common.js';
 
 /**
  * Capability: searchSecurityLogs
@@ -95,10 +97,13 @@ export async function searchSecurityLogs(params) {
         targetIndex = `${OPENSEARCH_URL}/wazuh-states-vulnerabilities-*,wazuh-alerts-*/_search`;
     }
 
-    const osResponse = await axios.post(targetIndex, esQuery, {
-        headers: { Authorization: `Basic ${authString}`, 'Content-Type': 'application/json' },
-        httpsAgent
-    });
+    // FIXTURES=1: return the response recorded for this exact query instead of calling OpenSearch.
+    const osResponse = fixturesEnabled()
+        ? replayHttp('opensearch', pathFromBase(targetIndex, OPENSEARCH_URL), esQuery)
+        : await axios.post(targetIndex, esQuery, {
+            headers: { Authorization: `Basic ${authString}`, 'Content-Type': 'application/json' },
+            httpsAgent
+        });
 
     const rawData = osResponse.data.hits.hits.map(hit => hit._source);
     const totalHits = osResponse.data.hits.total.value || rawData.length;
@@ -107,6 +112,8 @@ export async function searchSecurityLogs(params) {
         rawData,
         totalHits,
         targetIndex,
-        sourceScope
+        sourceScope,
+        // The exact request body sent, for the run record. Not passed to the model.
+        query: esQuery
     };
 }

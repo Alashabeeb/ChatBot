@@ -1,4 +1,5 @@
 import registry from '../llm/registry.js';
+import { runLog, recordRunError } from '../observability/runContext.js';
 
 /**
  * Tool Gateway
@@ -12,6 +13,7 @@ export async function executeTool(toolName, parameters, context = null) {
     const standardResponse = {
         success: false,
         tool: toolName,
+        parameters,
         executionTime: 0,
         data: {},
         error: null
@@ -20,14 +22,15 @@ export async function executeTool(toolName, parameters, context = null) {
     if (!registry.hasTool(toolName)) {
         standardResponse.error = `Tool '${toolName}' not found in registry.`;
         standardResponse.executionTime = Date.now() - startTime;
-        console.error(`[Gateway Error] ${standardResponse.error}`);
+        runLog.error(`[Gateway Error] ${standardResponse.error}`);
+        recordRunError('tool', standardResponse.error, { tool: toolName });
         return standardResponse;
     }
 
     const tool = registry.getTool(toolName);
 
     try {
-        console.log(`[Gateway Executing] Tool: ${toolName} | Params:`, JSON.stringify(parameters));
+        runLog.info(`[Gateway Executing] Tool: ${toolName} | Params:`, JSON.stringify(parameters));
         
         // Execute the capability
         const result = await tool.execute(parameters, context);
@@ -35,10 +38,11 @@ export async function executeTool(toolName, parameters, context = null) {
         standardResponse.success = true;
         standardResponse.data = result;
         
-        console.log(`[Gateway Success] Tool: ${toolName} completed in ${Date.now() - startTime}ms.`);
+        runLog.info(`[Gateway Success] Tool: ${toolName} completed in ${Date.now() - startTime}ms.`);
     } catch (error) {
         standardResponse.error = error.message;
-        console.error(`[Gateway Failure] Tool: ${toolName} failed in ${Date.now() - startTime}ms. Error: ${error.message}`);
+        runLog.error(`[Gateway Failure] Tool: ${toolName} failed in ${Date.now() - startTime}ms. Error: ${error.message}`);
+        recordRunError('tool', error.message, { tool: toolName });
     }
 
     standardResponse.executionTime = Date.now() - startTime;

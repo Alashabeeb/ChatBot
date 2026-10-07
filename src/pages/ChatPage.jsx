@@ -11,6 +11,14 @@ import AdminUsersModal from '../components/AdminUsersModal';
 import ManageQueriesModal from '../components/ManageQueriesModal';
 import './ChatPage.css';
 
+// raw_logs is keyed per tool ({ searchSecurityLogs: [...], getEndpointStatus: [...] }).
+// Messages saved before that change hold a plain array.
+function flattenRawLogs(rawLogs) {
+  if (Array.isArray(rawLogs)) return rawLogs;
+  if (rawLogs && typeof rawLogs === 'object') return Object.values(rawLogs).flat();
+  return [];
+}
+
 // Truncated summary with "more" / "less" toggle
 function TruncatedSummary({ text, wordLimit = 20 }) {
   const [expanded, setExpanded] = useState(false);
@@ -192,7 +200,9 @@ export default function ChatPage({ currentUser, onLogout }) {
           summary: msg.summary || '',
           rawLogs: msg.raw_logs || null,
           totalHits: msg.total_hits || 0,
-          isNew: msg.isNew ? 1 : 0
+          isNew: msg.isNew ? 1 : 0,
+          // Links the saved report to its server-side run record.
+          requestId: msg.request_id || null
         })
       });
     } catch (e) {
@@ -504,8 +514,8 @@ export default function ChatPage({ currentUser, onLogout }) {
                       <button 
                         className="view-logs-btn"
                         onClick={async () => {
-                          let finalLogs = m.raw_logs;
-                          if (!finalLogs || finalLogs.length === 0) {
+                          let finalLogs = flattenRawLogs(m.raw_logs);
+                          if (finalLogs.length === 0) {
                             // OPEN MODAL WITH LOADING STATE
                             setModalData({ isLoading: true, source: m.source, summary: m.summary, totalHits: m.total_hits });
                             
@@ -516,9 +526,9 @@ export default function ChatPage({ currentUser, onLogout }) {
                               const res = await fetch(API_URL, { headers: getAuthHeaders() });
                               const data = await res.json();
                               if (data.success) {
-                                finalLogs = data.logs;
+                                finalLogs = flattenRawLogs(data.logs);
                                 // Cache it locally
-                                m.raw_logs = finalLogs;
+                                m.raw_logs = data.logs;
                               }
                             } catch(e) {
                               console.error('Failed to fetch raw logs', e);

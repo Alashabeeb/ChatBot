@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { LLM_API_URL } from '../config/env.js';
+import { runLog, recordRunError } from '../observability/runContext.js';
+
+export const MODEL_NAME = 'foundation-sec-8b-instruct';
 
 /**
  * Handles communication with the Foundation-sec-8B model.
@@ -18,7 +21,7 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         messages.push({ role: "user", content: prompt });
 
         const requestBody = {
-            model: 'foundation-sec-8b-instruct',
+            model: MODEL_NAME,
             messages
         };
         if (maxTokens) requestBody.max_tokens = maxTokens;
@@ -27,7 +30,8 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         
         return response.data.choices[0].message.content.trim();
     } catch (error) {
-        console.warn('Foundation-sec-8B request failed.', error.message);
+        runLog.warn('Foundation-sec-8B request failed.', error.message);
+        recordRunError('llm', error.message);
         return null;
     }
 }

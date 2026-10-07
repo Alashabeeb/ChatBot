@@ -1,13 +1,22 @@
 import { runAgentWorkflow } from '../agent/runtime.js';
-import { hasSecurityKeyword } from '../utils/parser.util.js';
+import { GREETINGS, CONVERSATIONAL_PATTERNS, hasSecurityKeyword } from '../utils/parser.util.js';
 import { askFoundation } from '../llm/foundation.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
 
 /**
- * Routes ordinary conversation to the Foundation model and security requests to
- * the agent runtime. This keeps the browser and direct backend prompts on the
- * same model-backed path instead of returning a canned greeting from the API.
+ * Only clearly conversational messages (greetings, "what can you do", "explain ...") without any
+ * security keyword go to the Foundation model as plain conversation. Everything else goes to the
+ * agent runtime, which searches Wazuh and firewall data. Defaulting to the runtime matters:
+ * hasSecurityKeyword() matches whole words only, so "failed logons" or "top alerts" carry no
+ * keyword, and routing on the keyword alone would answer them without searching anything.
  */
+export function isConversational(lowerText) {
+    if (hasSecurityKeyword(lowerText)) return false;
+    return GREETINGS.includes(lowerText)
+        || (GREETINGS.some(g => lowerText.startsWith(g)) && lowerText.length < 20)
+        || CONVERSATIONAL_PATTERNS.some(p => lowerText.includes(p));
+}
+
 export async function processChatQuery(text, history = [], userId = 'default_user_1') {
     const normalizedText = typeof text === 'string' ? text.trim() : '';
     if (!normalizedText) {
@@ -18,10 +27,8 @@ export async function processChatQuery(text, history = [], userId = 'default_use
     }
 
     const lowerText = normalizedText.toLowerCase();
-    const isSecurityQuery = hasSecurityKeyword(lowerText);
-    // General questions never need SIEM planning or data retrieval. A single,
-    // short Foundation request keeps ordinary conversation responsive.
-    if (!isSecurityQuery) {
+    if (isConversational(lowerText)) {
+        // A single, short Foundation request keeps ordinary conversation responsive.
         const response = await askFoundation(
             normalizedText,
             SYSTEM_PROMPTS.CONVERSATIONAL_ASSISTANT,

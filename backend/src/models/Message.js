@@ -2,15 +2,15 @@ import { randomUUID } from 'crypto';
 import db from '../config/db.js';
 
 export class MessageModel {
-    static create({ id, sessionId, userId, role, type = 'text', text = '', summary = '', rawLogs = null, totalHits = 0, isNew = 0 }) {
+    static create({ id, sessionId, userId, role, type = 'text', text = '', summary = '', rawLogs = null, totalHits = 0, isNew = 0, requestId = null }) {
         const msgId = id || 'msg_' + randomUUID();
         const now = new Date().toISOString();
         const rawLogsJson = rawLogs ? (typeof rawLogs === 'string' ? rawLogs : JSON.stringify(rawLogs)) : null;
 
         db.prepare(`
-            INSERT INTO messages (id, session_id, user_id, role, type, text, summary, raw_logs, total_hits, is_new, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(msgId, sessionId, userId, role, type, text || '', summary || '', rawLogsJson, totalHits || 0, isNew ? 1 : 0, now);
+            INSERT INTO messages (id, session_id, user_id, role, type, text, summary, raw_logs, total_hits, is_new, created_at, request_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(msgId, sessionId, userId, role, type, text || '', summary || '', rawLogsJson, totalHits || 0, isNew ? 1 : 0, now, requestId);
 
         // Update session's updated_at timestamp
         db.prepare(`
@@ -29,13 +29,14 @@ export class MessageModel {
             summary,
             raw_logs: rawLogs,
             total_hits: totalHits,
+            request_id: requestId,
             created_at: now
         };
     }
 
     static listBySessionId(sessionId, userId) {
         const rows = db.prepare(`
-            SELECT id, session_id, user_id, role, type, text, summary, total_hits, created_at
+            SELECT id, session_id, user_id, role, type, text, summary, total_hits, request_id, created_at
             FROM messages
             WHERE session_id = ? AND user_id = ?
             ORDER BY created_at ASC
@@ -50,6 +51,7 @@ export class MessageModel {
             text: row.text,
             summary: row.summary,
             total_hits: row.total_hits,
+            request_id: row.request_id,
             timestamp: row.created_at
         }));
     }
