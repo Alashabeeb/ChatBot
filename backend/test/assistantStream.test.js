@@ -69,6 +69,8 @@ const { default: chatRoutes } = await import('../src/routes/chat.routes.js');
 const { authenticateToken } = await import('../src/middleware/auth.middleware.js');
 const { RunModel } = await import('../src/models/Run.js');
 initDatabase();
+const { default: db } = await import('../src/config/db.js');
+db.prepare("UPDATE users SET must_change_password = 0 WHERE id = 'user_admin_root'").run();   // tests start past first login (F-08b)
 
 const app = express();
 app.use(express.json());
@@ -234,7 +236,11 @@ test('stopping in the browser cancels the request to the model too', async (t) =
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let received = '';
-    while (!received.includes('event: token')) received += decoder.decode((await reader.read()).value, { stream: true });
+    while (!received.includes('event: token')) {
+        const { value, done } = await reader.read();
+        assert.ok(!done, `stream ended before any token (status ${res.status}): ${received}`);
+        received += decoder.decode(value, { stream: true });
+    }
     const requestId = JSON.parse(received.match(/event: meta\ndata: (.+)/)[1]).request_id;
     controller.abort();
     await reader.cancel().catch(() => {});

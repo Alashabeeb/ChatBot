@@ -1,5 +1,10 @@
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/env.js';
+import { UserModel } from '../models/User.js';
+
+// While a password change is required, only these endpoints are reachable (F-08b).
+const ALLOWED_DURING_PASSWORD_CHANGE = new Set(['/api/auth/me', '/api/auth/change-password']);
+const pathOf = url => (url || '').split('?')[0].replace(/\/+$/, '');
 
 export function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
@@ -12,20 +17,40 @@ export function authenticateToken(req, res, next) {
         });
     }
 
+    let decoded;
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = {
-            id: decoded.id,
-            username: decoded.username,
-            role: decoded.role
-        };
-        next();
+        decoded = jwt.verify(token, JWT_SECRET);
     } catch (err) {
         return res.status(403).json({
             type: 'error',
             error: 'Invalid or expired session token. Please log in again.'
         });
     }
+
+    // F-24: the token proves who signed in; the database decides whether that account still exists
+    // and what it may do. A deleted user is refused, and the role is never taken from the token.
+    const user = UserModel.findById(decoded.id);
+    if (!user) {
+        return res.status(401).json({
+            type: 'error',
+            error: 'This account no longer exists. Please log in again.'
+        });
+    }
+    req.user = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        mustChangePassword: user.must_change_password === 1
+    };
+
+    if (req.user.mustChangePassword && !ALLOWED_DURING_PASSWORD_CHANGE.has(pathOf(req.originalUrl))) {
+        return res.status(403).json({
+            type: 'error',
+            code: 'PASSWORD_CHANGE_REQUIRED',
+            error: 'You must change your password before continuing.'
+        });
+    }
+    next();
 }
 
 export function requireAdmin(req, res, next) {

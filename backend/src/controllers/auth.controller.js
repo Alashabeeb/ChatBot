@@ -1,5 +1,13 @@
 import jwt from 'jsonwebtoken';
 import { UserModel } from '../models/User.js';
+
+const publicUser = user => ({
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    created_at: user.created_at,
+    mustChangePassword: user.must_change_password === 1
+});
 import { JWT_SECRET } from '../config/env.js';
 
 export async function login(req, res) {
@@ -42,12 +50,7 @@ export async function login(req, res) {
         return res.json({
             success: true,
             token,
-            user: {
-                id: user.id,
-                username: user.username,
-                role: user.role,
-                created_at: user.created_at
-            }
+            user: publicUser(user)
         });
     } catch (error) {
         console.error('[Auth Controller Error - Login]:', error.message);
@@ -70,13 +73,23 @@ export async function getMe(req, res) {
 
         return res.json({
             success: true,
-            user
+            user: publicUser(user)
         });
     } catch (error) {
         return res.status(500).json({
             type: 'error',
             error: error.message
         });
+    }
+}
+
+export async function changePassword(req, res) {
+    try {
+        const { currentPassword, newPassword } = req.body ?? {};
+        UserModel.changePassword(req.user.id, currentPassword, newPassword);
+        return res.json({ success: true, user: publicUser(UserModel.findById(req.user.id)) });
+    } catch (error) {
+        return res.status(error.status || 500).json({ type: 'error', error: error.message });
     }
 }
 

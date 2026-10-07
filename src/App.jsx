@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import LoginPage from './pages/LoginPage';
 import ChatPage from './pages/ChatPage';
+import ChangePasswordPage from './pages/ChangePasswordPage';
 import ResolutionGuard from './components/ResolutionGuard';
 
 function App() {
@@ -106,7 +107,13 @@ function App() {
   return (
     <ThemeProvider>
       <ResolutionGuard>
-        {isAuthenticated ? (
+        {isAuthenticated && currentUser?.mustChangePassword ? (
+          <ChangePasswordPage
+            currentUser={currentUser}
+            onChanged={(user) => setCurrentUser(user)}
+            onLogout={handleLogout}
+          />
+        ) : isAuthenticated ? (
           <ChatPage
             currentUser={currentUser}
             onLogout={handleLogout}

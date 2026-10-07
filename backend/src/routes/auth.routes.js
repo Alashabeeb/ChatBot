@@ -4,7 +4,8 @@ import {
     getMe,
     listUsers,
     createUser,
-    deleteUser
+    deleteUser,
+    changePassword
 } from '../controllers/auth.controller.js';
 import { authenticateToken, requireAdmin } from '../middleware/auth.middleware.js';
 
@@ -15,6 +16,7 @@ router.post('/login', login);
 
 // Authenticated self-inspection
 router.get('/me', authenticateToken, getMe);
+router.post('/change-password', authenticateToken, changePassword);
 
 // Admin-only User Management routes
 router.get('/users', authenticateToken, requireAdmin, listUsers);

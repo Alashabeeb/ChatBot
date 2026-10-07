@@ -11,7 +11,8 @@ import Database from 'better-sqlite3';
 const serverPath = fileURLToPath(new URL('../src/server.js', import.meta.url));
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-restart-'));
 const dbPath = path.join(tmpDir, 'soc_chatbot.db');
-const ADMIN_PASSWORD = 'restart-test-password';
+let ADMIN_PASSWORD = 'restart-test-password';
+const NEW_ADMIN_PASSWORD = 'changed-after-first-login-42';
 
 const cleanups = [];
 after(async () => {
@@ -53,7 +54,7 @@ async function startServer(port, llmUrl) {
             ...process.env,
             PORT: String(port),
             SOC_DB_PATH: dbPath,
-            JWT_SECRET: 'restart-test-secret',
+            JWT_SECRET: 'restart-test-secret-0123456789abcdefghijkl',
             ADMIN_INITIAL_PASSWORD: ADMIN_PASSWORD,
             LLM_API_URL: llmUrl,
             OPENSEARCH_URL: 'http://127.0.0.1:9',
@@ -89,8 +90,17 @@ async function startHangingRun(port, question) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: 'admin', password: ADMIN_PASSWORD })
     });
-    const { token } = await login.json();
+    const { token, user } = await login.json();
     assert.ok(token, 'login failed');
+    if (user.mustChangePassword) {   // first login of the seeded admin (F-08b)
+        const changed = await fetch(`http://127.0.0.1:${port}/api/auth/change-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ currentPassword: ADMIN_PASSWORD, newPassword: NEW_ADMIN_PASSWORD })
+        });
+        assert.equal(changed.status, 200, await changed.text());
+        ADMIN_PASSWORD = NEW_ADMIN_PASSWORD;
+    }
 
     const controller = new AbortController();
     fetch(`http://127.0.0.1:${port}/api/chat`, {

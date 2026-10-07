@@ -47,9 +47,24 @@ for (const [label, value] of [['unset', undefined], ['empty', ''], ['whitespace'
     });
 }
 
+for (const [label, value] of [
+    ['too short (31 characters)', 'x'.repeat(10) + '0123456789abcdefghijk'],
+    ['a common word', 'secret'],
+    ['the old fallback published in the source history', 'soc_chatbot_jwt_secret_key_2026_secure_random'],
+    ['long but one repeated character', 'a'.repeat(64)]
+]) {
+    test(`F-23: server refuses to start when JWT_SECRET is weak: ${label}`, () => {
+        const dbName = `weak-${label.replace(/\W+/g, '-')}.db`;
+        const result = startServerSync(dbName, { JWT_SECRET: value });
+        assert.equal(result.status, 1, result.stdout + result.stderr);
+        assert.match(result.stderr, /FATAL CONFIG ERROR: JWT_SECRET/);
+        assert.ok(!fs.existsSync(path.join(tmpDir, dbName)), 'exit must happen before the database is created');
+    });
+}
+
 test('server starts when JWT_SECRET is set (control)', async () => {
     const dbName = 'started.db';
-    const child = spawn(process.execPath, [serverPath], { cwd: tmpDir, env: serverEnv(dbName, { JWT_SECRET: 'test-secret-for-startup-check' }) });
+    const child = spawn(process.execPath, [serverPath], { cwd: tmpDir, env: serverEnv(dbName, { JWT_SECRET: 'test-secret-for-startup-check-0123456789abcdef' }) });
     let output = '';
     try {
         await new Promise((resolve, reject) => {

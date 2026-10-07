@@ -17,7 +17,7 @@ if (!process.env.SOC_DB_PATH && !fs.existsSync(dataDir)) {
 }
 const db = new Database(dbPath);
 
-import { ADMIN_INITIAL_USER, ADMIN_INITIAL_PASSWORD } from './env.js';
+import { ADMIN_INITIAL_USER, ADMIN_INITIAL_PASSWORD, PUBLISHED_DEFAULT_ADMIN_PASSWORD } from './env.js';
 
 // Enable WAL mode & Foreign Keys for fast concurrency and data integrity
 db.pragma('journal_mode = WAL');
@@ -78,6 +78,18 @@ export function initDatabase() {
             created_at TEXT NOT NULL
         );
     `);
+
+    // Forced password change (F-08b). Added after the table existed, so migrate in place.
+    const userColumns = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
+    if (!userColumns.includes('must_change_password')) {
+        db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0');
+    }
+    // An existing admin still on the published default password must change it at next login.
+    const seededAdmin = db.prepare("SELECT password_hash, must_change_password FROM users WHERE id = 'user_admin_root'").get();
+    if (seededAdmin && !seededAdmin.must_change_password && bcrypt.compareSync(PUBLISHED_DEFAULT_ADMIN_PASSWORD, seededAdmin.password_hash)) {
+        db.prepare("UPDATE users SET must_change_password = 1 WHERE id = 'user_admin_root'").run();
+        console.log('[Database] Default admin still uses the published default password: a change is required at next login.');
+    }
 
     // 2. Chat Sessions Table
     db.exec(`
@@ -178,8 +190,8 @@ export function initDatabase() {
         const createdAt = new Date().toISOString();
 
         db.prepare(`
-            INSERT INTO users (id, username, password_hash, role, created_at)
-            VALUES (?, ?, ?, 'admin', ?)
+            INSERT INTO users (id, username, password_hash, role, created_at, must_change_password)
+            VALUES (?, ?, ?, 'admin', ?, 1)
         `).run(adminId, ADMIN_INITIAL_USER, passwordHash, createdAt);
 
         console.log(`[Database] 👑 Default admin user seeded successfully (username: '${ADMIN_INITIAL_USER}').`);
