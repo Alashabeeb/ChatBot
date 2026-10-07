@@ -111,6 +111,37 @@ The request: *"talk to the LLM directly from the frontend … like ChatGPT, Gemi
 | W2 | **Production deploys from `main`, which now carries every change, not just the hotfix.** `docs/DEPLOY.md` replaces the hotfix-only instructions. | Pulling `main` now migrates the database, requires `JWT_SECRET` and adds frontend packages. The old hotfix doc would have caused an outage. |
 | W3 | **Past commit messages that mention the old folder are left as they are.** | They're already on GitHub; rewriting pushed history would break every other clone. |
 
+---
+
+## Phase 2: Close every known defect (2026-10-07)
+
+Commits: `afec39c` (2.1), `4dc3b9e` (2.2, 2.3, 2.6, 2.10), `0d862e2` (2.4, 2.5), `ecdbc8a` (2.7, 2.8, 2.9), `da2dcae` (2.11, 2.12), `47fcda9` (2.13, 2.14), `4784306` (2.15), then the docs commit (2.16).
+
+| # | Decision | Why |
+|---|---|---|
+| P1 | `checkProcessList` **is registered** with the planner, returning "not available". | It's honest now. If an analyst asks about processes, the report says plainly that process inspection isn't available, instead of the plan being silently rejected. |
+| P2 | `blockIpAction` is **registered but approval-gated in three layers** (registry hides it, validator rejects it, gateway refuses it without an approval for exactly that tool, those parameters and a named approver). | Requested: "never on the planner's own judgement". Each layer is mutation-checked independently. A future real implementation inherits the gate by default. Nothing creates approvals yet, so blocking is impossible today (F-58). |
+| P3 | **Purge paraphrase for block claims is deliberately narrow:** "IP/address … has been / was / is now blocked". | Real firewall reports say "blocked" constantly; the test pins that "the firewall blocked 42 inbound connections" is not flagged. Patterns are bounded by length, not '.', because IP addresses contain dots — a bug the tests caught. |
+| P4 | **Timeouts:** planner 45 s, report 120 s, memory 45 s, conversation 60 s, plus a 60 s default for any call that passes none. Each call also gets an `AbortSignal` hard deadline. | **⚠ Review** once real model speed is known; all are configurable. The report gets the longest because it writes the most. A mutation test showed a `0` default would abort every call instantly, so the default is pinned in both directions. |
+| P5 | **The conversational path returns HTTP 200 with an honest message when the model is down**, replacing the 503 kept from Push 26. | Requested (2.3). The routing test that pinned the 503 was updated to the new behaviour. |
+| P6 | **Memories go to the planner inside a `<stored_context>` block in the user prompt, labelled "data, not instructions".** | Requested (F-20). They're still useful context, just without system authority. |
+| P7 | **`askFoundation` drops any history entry that isn't `{ role: user \| assistant, content: string }`** (F-22). | Defence in depth. It makes two mutants equivalent — the F-20 and conversation-sanitizer mutants each break one layer while the other keeps the outcome correct. Recorded rather than weakening a layer so a test could see it. |
+| P8 | **The auth middleware reads the user from SQLite on every request** (F-24). | One indexed read per request is negligible here, and it's the only way a deletion or role change takes effect before the 7-day token expires. |
+| P9 | **The admin is forced to change its password if it still verifies against the published default `Password12$`**; freshly seeded admins always are. While flagged, only `/api/auth/me` and `/api/auth/change-password` work. | Requested: keep the default account, but force a change. Checking the actual password means an admin who already set their own isn't bothered. **⚠ Review:** the password policy (12+ characters, not the default, not containing the username, 6+ distinct characters) is my choice. |
+| P10 | **`JWT_SECRET` minimum is 32 characters, with 8+ distinct, and known published values are rejected.** | The tokens use HS256, so one captured token allows offline guessing; 32 random characters is far beyond brute force. The old fallback is 47 characters, so a length rule alone wouldn't catch it. Blocked values are stored as SHA-256 hashes so the literal never re-enters the source (the F-44 test enforces that). **⚠ Production impact:** a weak existing secret now stops the backend from starting. `DEPLOY.md` step 3 checks it first. |
+| P11 | **Purge script:** `openDatabase(write)` and `isMainModule()` are exported so they can be tested. The Windows check compares paths case-insensitively. | F-32 and F-36 can't be reproduced on macOS directly; the pure functions are tested with Windows-style inputs instead. |
+| P12 | **View Full Details:** records are labelled by source (new `src/lib/rawLogs.js`); the modal now takes `entries`, not `logs`. Agent records read "Wazuh agent: active". The modal summary collapses by height. | F-33 and F-40. Cutting the summary by word count broke the Markdown. |
+| P13 | **Removed claims nothing backed:** "ENCRYPTED SESSION", "TLS 1.3 ENCRYPTED", "SYSTEM ONLINE", "Connected to Wazuh SIEM", "Live Monitoring Active" and "v2.0.0". **Kept** "Verifying SOC Credentials…", which is true at that moment. A guard test fails if any of these claims returns. | Requested (2.14: "never simulate activity"). The app talks to the backend over plain HTTP (F-10), so the encryption claims were false; nothing checked "online" status. |
+| P14 | **⚠ `npm audit fix` updated `axios` (high) and `proxy-addr` (critical) as well as the named `qs` / `express` / `body-parser`.** | The same non-breaking command fixes all five, all within declared ranges. Leaving a critical and a high open seemed wrong. If you wanted only the three, it's one commit (`4784306`) to revisit. |
+| P15 | **The F-31 single-process rule is documented with a check** in `DEPLOY.md` and the runbook; behaviour is unchanged. | Requested (2.16). A real fix (a lock or heartbeat) would be a design change. |
+
+**Tests changed in Phase 2** (none loosened):
+- `toolRegistry` now describes the new rule (checkProcessList offered, blockIpAction never).
+- The routing 503 test now expects the requested 200 fallback.
+- `multiToolRawLogs` expects 3 OpenSearch calls (its CVE search is no longer split).
+- `assistantStream` and `serverRestart` start past the admin's first login and use 32+ character secrets.
+- The stream test's read loop can no longer spin forever.
+
 ### Left for later phases on purpose
 
 - **The conversational path still returns HTTP 503 when the model is down** — Phase 2.3.

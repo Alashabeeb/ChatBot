@@ -10,17 +10,20 @@ All work now happens on `main`, so pulling it brings **everything** below, not j
 
 | Area | Change | Effect on deploy |
 |---|---|---|
-| **Fabricated tools** | `blockIpAction` and `checkProcessList` (fake "IP blocked" and fake `unknown_miner`) can no longer be used | none |
+| **Fabricated tools** | `checkProcessList` now says plainly that process inspection isn't available. `blockIpAction` can never be triggered by the model: it requires explicit human approval, and even then blocks nothing until a firewall integration exists. | none |
 | **Routing** | Security questions like "show me failed logons today" now search Wazuh instead of being answered with no data (F-43) | none |
 | **Threat intel** | The mock "not malicious, threat score 10" no longer reaches reports (F-00) | none |
-| **Login security** | No hard-coded JWT fallback secret (F-08a) | **`JWT_SECRET` must be set, or the backend won't start.** Setting a new one logs every user out once. |
+| **Login security** | No hard-coded JWT fallback secret (F-08a); the secret must be strong (F-23) | **`JWT_SECRET` must be set, at least 32 random characters, and not the old published value, or the backend won't start.** Setting a new one logs every user out once. |
+| **Accounts** | Every request checks the account still exists and uses its role from the database (F-24) | Deleted users are locked out at once |
+| **Default admin** | Must choose a new password on first login if it still uses the published default `Password12$` (F-08b) | **The admin sees a "Set a new password" screen** after logging in |
+| **Model calls** | Every model call has a time limit; a hung model can't stall a request (F-03) | none |
 | **Chat history** | Clients can no longer inject system instructions (F-06) | none |
 | **Honesty** | Fallback answers are labelled as not model-generated (F-01) | none |
 | **Run logging** | Every question gets a run record and a request ID | **Database migration on first start** (adds `messages.request_id` and the `runs` table) |
 | **Assistant chat** | ChatGPT-style chat with streaming, plus a **Search Wazuh** toggle | **Frontend needs `npm ci`** (two new packages) |
 | **Scripts** | Backup, read-only DB report, audit, purge, capture/replay | none |
-
-Backend dependencies are unchanged, so the backend needs no `npm install`.
+| **Security updates** | `axios`, `express`, `proxy-addr`, `qs`, `body-parser` patched (`npm audit`: 0 issues) | **Backend needs `npm ci`** |
+| **No fake status** | "Encrypted session", "TLS 1.3", "System online", "Live Monitoring Active" and similar claims removed | none |
 
 ---
 
@@ -51,22 +54,25 @@ Expected: `Backup OK: …\data\soc_chatbot.backup-<timestamp>.db`, followed by `
 
 Pulling doesn't affect the running backend. Node already has the old code loaded until the restart.
 
-### 3. Set `JWT_SECRET`
+### 3. Check `JWT_SECRET` (and replace it if it's missing or weak)
 
+This reports only the length and how many distinct characters it has, never the value:
 ```powershell
-if (Select-String -Path "$REPO\backend\.env" -Pattern '^JWT_SECRET=\S' -Quiet) { 'JWT_SECRET: already set' } else { 'JWT_SECRET: NOT set' }
+$m = Select-String -Path "$REPO\backend\.env" -Pattern '^JWT_SECRET=(.*)$' | Select-Object -First 1; if (-not $m) { 'JWT_SECRET: NOT set' } else { $v = $m.Matches[0].Groups[1].Value.Trim(); "JWT_SECRET: set, length $($v.Length), distinct characters $(([System.Collections.Generic.HashSet[char]]$v.ToCharArray()).Count)"; Remove-Variable v }
 ```
-If it's not set, generate one and add it. This prints nothing secret to the screen:
+**It's fine if** the length is **32 or more** and there are **8 or more** distinct characters. Otherwise — including if it was ever copied from the source code — replace it. This removes any old line and adds a new random one, printing nothing secret:
 ```powershell
-$secret = node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"; Add-Content -Path "$REPO\backend\.env" -Value "JWT_SECRET=$secret"; Remove-Variable secret; 'JWT_SECRET added'
+(Get-Content "$REPO\backend\.env") | Where-Object { $_ -notmatch '^JWT_SECRET=' } | Set-Content "$REPO\backend\.env"; $secret = node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"; Add-Content -Path "$REPO\backend\.env" -Value "JWT_SECRET=$secret"; Remove-Variable secret; 'JWT_SECRET replaced'
 ```
+The backend also checks this at startup and refuses to start with a clear `FATAL CONFIG ERROR` if the secret is missing, too short, too repetitive, or the old published value.
 **If it was *not* set before,** production has been signing login tokens with the old secret that was published in the source code, so tokens could have been forged. Setting a real secret invalidates them all. See the incident note in `docs/FINDINGS.md`, and check the user list in step 6 for accounts nobody recognises.
 
-### 4. Frontend packages
+### 4. Packages (backend and frontend)
 
 ```powershell
-cd $REPO; npm ci
+cd $REPO\backend; npm ci; cd $REPO; npm ci
 ```
+The backend needs this for the security updates; the frontend for the Markdown renderer.
 Then rebuild and restart the frontend **the way it's normally run** (for example `npm run build` and serving `dist\`, or restarting `npm run dev`).
 
 ### 5. Restart the backend
@@ -98,7 +104,11 @@ This lists saved messages and memories containing `IP_BLOCKED`, `unknown_miner`,
 
 ### 8. Smoke test in the browser
 
-Log in again (everyone is logged out if the secret changed), then:
+Log in again (everyone is logged out if the secret changed).
+
+0. **If the admin still had the default password,** a **Set a new password** screen appears first. Choose a new one: at least 12 characters, not containing the username. **Pass:** after saving, the chat opens, and the old password no longer works.
+
+Then:
 
 1. **Chat mode** (Search Wazuh off): ask `Write a two-line status update for the team`.
    - **Pass:** the answer streams in word by word; it has a Copy button and no "Searched Wazuh" badge.
@@ -110,12 +120,14 @@ Log in again (everyone is logged out if the secret changed), then:
    - **Pass:** the partial answer stays, marked "Stopped".
 5. Ask `Block the IP that attacked us most today`, with Search Wazuh **on**.
    - **Pass:** nothing claims an IP was blocked or added to a blocklist.
+6. Ask `Check the running processes on agent 001`, with Search Wazuh **on**.
+   - **Pass:** the answer says **process inspection is not available**. No process list, no `unknown_miner`.
 
 ### 9. Send back
 
 1. The output of steps 2, 6 and 7.
 2. `git log -1 --oneline` after the pull.
-3. Whether `JWT_SECRET` was already set (yes/no only, never the value).
+3. Step 3's output (length and distinct characters only), and whether you replaced the secret.
 4. Smoke-test results, and the text of any answer that looked wrong.
 
 The audit and DB report outputs contain usernames and fragments of security reports, so use the usual internal channel.
@@ -126,14 +138,26 @@ The audit and DB report outputs contain usernames and fragments of security repo
 
 1. Stop the backend.
 2. Restore the database from the step 2 backup (copy it over `data\soc_chatbot.db`), and delete `soc_chatbot.db-wal` and `soc_chatbot.db-shm` if present.
-3. Go back to the previous code, then reinstall frontend packages and restart both:
+3. Go back to the previous code, then reinstall packages and restart both:
 ```powershell
-cd $REPO; git checkout c0e2010; npm ci
+cd $REPO; git checkout c0e2010; npm ci; cd backend; npm ci
 ```
 **Rolling back re-enables the fabricated tools, the JWT fallback and the misrouting.** Report straight away if you have to.
 
 ## New optional settings (`backend\.env`)
 
-`LLM_CHAT_MAX_TOKENS` (1024), `LLM_CHAT_TEMPERATURE` (0.5), `LLM_STREAM_FIRST_TOKEN_TIMEOUT_MS` (60000), `LLM_STREAM_IDLE_TIMEOUT_MS` (30000), `LLM_CHAT_HISTORY_CHAR_BUDGET` (24000). Defaults in brackets; see `docs/ASSISTANT_CHAT.md`.
+**Chat:** `LLM_CHAT_MAX_TOKENS` (1024), `LLM_CHAT_TEMPERATURE` (0.5), `LLM_STREAM_FIRST_TOKEN_TIMEOUT_MS` (60000), `LLM_STREAM_IDLE_TIMEOUT_MS` (30000), `LLM_CHAT_HISTORY_CHAR_BUDGET` (24000). See `docs/ASSISTANT_CHAT.md`.
 
-**One backend process per database file:** a second process starting would mark the first one's in-flight requests as interrupted (F-31).
+**Time limits for the other model calls**, in ms: `LLM_PLANNER_TIMEOUT_MS` (45000), `LLM_REPORT_TIMEOUT_MS` (120000), `LLM_MEMORY_TIMEOUT_MS` (45000), `LLM_CONVERSATION_TIMEOUT_MS` (60000), `LLM_DEFAULT_TIMEOUT_MS` (60000). Raise them if the model is slow but working; lower them to fail faster when it hangs.
+
+Defaults are in brackets.
+
+## Run exactly one backend process
+
+**Run exactly one backend process per database file (F-31).** When the backend starts, it marks any request still recorded as "running" by a *different* process as **interrupted**. With one process that's correct: those requests died with the old process. If a second backend is started against the same `data\soc_chatbot.db` (a second terminal, a service plus a manual start, a cluster), it would wrongly mark the first one's live requests as interrupted.
+
+Check before starting:
+```powershell
+Get-NetTCPConnection -LocalPort 3002 -State Listen -ErrorAction SilentlyContinue | Select-Object OwningProcess
+```
+Nothing listed means no backend is running. A process ID means one already is: stop it first rather than starting another.

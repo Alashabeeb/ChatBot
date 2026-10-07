@@ -20,7 +20,8 @@ Instructions for one trip to the Windows machine that runs the backend. By the e
   - rebuilds `runs` if an earlier version of it exists
 
   That's why **step 3 (backup) comes before anything else touches the database** (step 2 only unpacks files), and why you must **not** start `server.js` from `C:\soc-capture` pointed at the live data. Deploying the updated backend is a separate change, covered at the end.
-- **The updated backend also refuses to start without `JWT_SECRET`** (F-08a). This doesn't affect capture, but step 4 checks for it so you know before any deployment.
+- **The updated backend also refuses to start without a strong `JWT_SECRET`** (F-08a, F-23): at least 32 random characters, and not the old published value. This doesn't affect capture, but step 4 checks for it so you know before any deployment.
+- **One backend process per database file (F-31).** On startup the backend marks every request still recorded as "running" by a *different* process as **interrupted**, because a single backend can't have two lives. Starting a second backend against the same database — for example `server.js` from `C:\soc-capture` while the live one runs — would wrongly mark the live backend's in-flight requests as interrupted. Capture itself doesn't start a backend and uses its own scratch database, so it's safe. To see whether a backend is already listening, run `Get-NetTCPConnection -LocalPort 3002 -State Listen -ErrorAction SilentlyContinue`.
 - **Fixtures contain real security telemetry, unredacted.** That includes internal IPs, hostnames, usernames and raw alert and agent data. Handle them like the SIEM data they are: never commit them, email them, paste them into chat, or put them in synced or cloud folders. `fixtures/` and `quarantine/` are gitignored.
 - **Never recorded, with or without redaction:** request headers (which carry the Wazuh/OpenSearch credentials), the Wazuh API token, and the OpenSearch, Wazuh and model base URLs (replaced with `<OPENSEARCH_URL>` and similar).
 
@@ -317,8 +318,9 @@ These disappear when the window closes.
 ## Deploying the updated backend (not part of this trip)
 
 When the updated code is later installed in `$LIVE` and started:
+Follow **`docs/DEPLOY.md`**: it's the full procedure. In short:
 1. **Take a fresh backup** with `scripts\backupDb.js` right before. The one from this trip won't include later changes.
-2. **Make sure `JWT_SECRET` is set,** or the server refuses to start with `FATAL CONFIG ERROR: JWT_SECRET is not set`.
+2. **Make sure `JWT_SECRET` is set and strong** (32+ random characters), or the server refuses to start with `FATAL CONFIG ERROR: JWT_SECRET …`.
 3. **On first start it migrates the database:**
    - adds `messages.request_id` with an index
    - creates `runs`

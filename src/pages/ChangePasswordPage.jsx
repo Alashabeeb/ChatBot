@@ -84,7 +84,7 @@ export default function ChangePasswordPage({ currentUser, onChanged, onLogout })
               </div>
             )}
             {field('Current password', currentPassword, setCurrentPassword, 'current-password')}
-            {field(`New password (at least ${MIN_LENGTH} characters)`, newPassword, setNewPassword, 'new-password')}
+            {field(`New password (${MIN_LENGTH}+ characters)`, newPassword, setNewPassword, 'new-password')}
             {field('Confirm new password', confirm, setConfirm, 'new-password')}
 
             <button type="submit" className="lp-submit-btn" disabled={isSaving || !currentPassword || !newPassword || !confirm}>
@@ -95,7 +95,7 @@ export default function ChangePasswordPage({ currentUser, onChanged, onLogout })
           </form>
 
           <div className="lp-card-footer">
-            <button type="button" className="lp-eye-btn" style={{ position: 'static', display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={onLogout}>
+            <button type="button" className="lp-eye-btn" style={{ position: 'static', display: 'inline-flex', gap: 6, alignItems: 'center', whiteSpace: 'nowrap', width: 'auto', padding: '4px 8px' }} onClick={onLogout}>
               <LogOut size={14} /> Sign out
             </button>
           </div>

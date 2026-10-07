@@ -7,6 +7,7 @@ Opened 2026-09-16; all fixes and findings live in this repository on `main` sinc
 **Status by phase of the October consolidation plan:**
 - **Phase 0 (hotfix on `main`):** F-42 mitigated.
 - **Phase 1 (merge):** everything under "Fixed" below. F-43 and F-44 fixed.
+- **Phase 2 (2026-10-07):** F-03, F-08b, F-11, F-12, F-16, F-20, F-22, F-23, F-24, F-29, F-32, F-33, F-35, F-36, F-40, F-42, F-46 fixed; F-31 documented. New: F-55 to F-60.
 - **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
@@ -87,10 +88,10 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Tests:** `backend/test/multiToolRawLogs.test.js` runs two OpenSearch searches plus a Wazuh call, and checks that all three result sets survive, including when tools finish out of order. Both tests failed before the fix. Mutation check: removing the plan-order sort makes them fail.
 - **Not verified:** the frontend change hasn't been built or run here (frontend dependencies not installed).
 
-### F-42: Two "action" tools returned fabricated results to analysts. **MITIGATED 2026-10-07 (Phase 0, `8fef3d9`)**; full fix due in Phase 2
+### F-42: Two "action" tools returned fabricated results to analysts. **MITIGATED 2026-10-07 (Phase 0, `8fef3d9`); FIXED (Phase 2, `afec39c`)**
 - **Was:** `blockIpAction` (added in Push 25) blocked nothing but returned `IP_BLOCKED` / "Successfully added … to the firewall blocklist." `checkProcessList` returned the same hard-coded list for every endpoint, including a root `unknown_miner` at 98.5% CPU. Both were registered with the planner, so their output reached reports as evidence, and the planner could "block" on its own judgement.
 - **Mitigation:** both unregistered. A model plan naming either one is rejected by `validateExecutionPlan`. Tests: `backend/test/toolRegistry.test.js`. `backend/scripts/auditFabricatedActions.js` (`8fef3d9`, `13f741d`) lists saved messages and memories containing the fabricated text. Deploy steps: `docs/HOTFIX_DEPLOY.md`.
-- **Still to do (Phase 2.1):** return an explicit "not implemented" result like threat intel; require human approval for any future blocking action; extend the purge script to quarantine `IP_BLOCKED` / `unknown_miner` content.
+- **Fixed (Phase 2.1, `afec39c`):** `checkProcessList` returns an explicit "not available" result, handled like threat intel: never evidence, and a runtime-written note in the report. `blockIpAction` is approval-gated in three layers: the registry never offers it to the planner, the plan validator rejects it, and the gateway refuses it without an approval for exactly that tool, those parameters and a named approver. Nothing in the planner path supplies one, and even an approved call blocks nothing until a firewall integration exists. The purge script now catches `IP_BLOCKED`, "added … to the firewall blocklist" and `unknown_miner`. Tests: `backend/test/actionTools.test.js`.
 
 ### F-43: Security questions were answered without searching any data. **FIXED on `main` 2026-10-07 (Phase 1)**; live in production until `main` is deployed
 - **Was (Push 25/26 on `main`):** `processChatQuery` sent every message *without* a security keyword to the chat-only model path, which never searches. `hasSecurityKeyword` matches whole words only, so `alerts`, `failed`, `logons`, `vulnerabilities`, `unusual` and `suspicious` carry no keyword. All four capture questions — "what is going on right now", "anything unusual on the AD servers", "show me failed logons today", "what are the top alerts this week" — plus questions like "how many vulnerabilities on web-01" were answered by the model with no data at all.
@@ -112,7 +113,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Problem:** every error becomes `null` or a quiet switch to the legacy planner, with only a `console.warn`.
 - **Partly addressed by F-01:** the response now flags a rule-based plan and a report the model didn't write. The actual error (timeout, HTTP status, bad JSON) still isn't passed on or recorded anywhere except the console.
 
-**F-03: No timeout on model calls. Likely cause of slow and stalled runs.** **Fixed for general chat:** `/api/chat/stream` has a first-token timeout and an idle timeout, tested against a server that never answers and one that stalls mid-answer. **Still open for the Search Wazuh pipeline** (`askFoundation`), due in Phase 2.2.
+**F-03: No timeout on model calls. Likely cause of slow and stalled runs.** **FIXED 2026-10-07 (Phase 2, `4dc3b9e`)**: every model call now has a time limit; also covers Search Wazuh.
 - **Where:** `backend/src/llm/foundation.js`, the `axios.post` in `askFoundation` passes `{ timeout: 0 }`, which in axios means no timeout.
 - **Refused vs. hung:** if the model server *refuses* the connection (down, wrong port), axios rejects straight away, the `catch` fires, and the run falls back to rule-based logic. If the server *hangs* (accepts the connection but never answers, for example stuck on load or an overloaded GPU), nothing ever throws. The promise stays pending forever, so the `catch` that would trigger the fallback never runs.
 - **Effect on a run:**
@@ -137,7 +138,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 **F-07: User text goes into prompts unescaped.**
 - **Where:** `backend/src/agent/planner.js:22`, `backend/src/agent/runtime.js` (reasoning prompt), `backend/src/memory/summarizer.js:8`.
 
-**F-08b: Default admin password.**
+**F-08b: Default admin password.** **FIXED 2026-10-07 (Phase 2, `ecdbc8a`)**: admin must change the published default password on first login.
 - **Where:** `backend/src/config/env.js`, `ADMIN_INITIAL_PASSWORD`.
 - **Problem:** it defaults to `Password12$` when unset. The seeded admin account (`initDatabase`) gets that password.
 
@@ -149,7 +150,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Where:** `src/pages/ChatPage.jsx:131–133`, 180–182 and more.
 - **Problem:** JWTs and SIEM data travel unencrypted to port 3002.
 
-**F-11: `npm audit` reports 3 moderate vulnerabilities in backend dependencies.** Reviewed 2026-09-16; nothing applied.
+**F-11: `npm audit` reports 3 moderate vulnerabilities in backend dependencies.** Reviewed 2026-09-16; nothing applied. **FIXED 2026-10-07 (Phase 2, `4784306`)**: `npm audit fix`: 0 issues, plus new axios and proxy-addr advisories.
 - The three entries are really **one vulnerable package, `qs@6.15.3`**, counted three times: directly, through `body-parser@1.20.6`, and through `express@4.22.2`.
   - **GHSA-4mjr-xmp4-gh2g** (CVSS 5.3): denial of service through an attacker-controlled `isBuffer`. Affects `qs` >=2.2.5 <6.16.0.
   - **GHSA-x5fp-wj9c-mxmx** (CVSS 3.7): array-limit bypass through bracket-key comma parsing. Affects `qs` >=6.14.2 <=6.15.3.
@@ -158,7 +159,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 
 ### Reliability
 
-**F-12: Unhandled promise rejection in the memory write.**
+**F-12: Unhandled promise rejection in the memory write.** **FIXED 2026-10-07 (Phase 2, `4dc3b9e`)**
 - **Where:** `backend/src/agent/runtime.js:186`.
 - **Problem:** `memoryManager.write(...)` in the no-results branch is neither awaited nor given a `.catch`. If the write fails (for example a foreign-key error for an unknown user), Node's default unhandled-rejection behavior crashes the process.
 
@@ -168,7 +169,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 
 ### Observability
 
-**F-16: Fake activity text in the UI.**
+**F-16: Fake activity text in the UI.** **FIXED 2026-10-07 (Phase 2, `47fcda9`)**: fake typewriter, rotating status, TerminalFeed and false status claims removed.
 - **Where:** `src/components/TerminalFeed.jsx:6` and `src/components/ChatMessage.jsx` (`TypingDots` phases).
 - **Problem:** `TerminalFeed` is a hard-coded script that looks like a live log. The loading phrases ("Correlating security events…" and others) don't reflect what the backend is doing. The "Fetching threat intelligence…" phrase was removed as part of F-00; the rest are unchanged.
 
@@ -186,7 +187,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 
 ### Found 2026-09-16 (second pass)
 
-**F-20: Stored user text is sent to the planner as a `system` message.**
+**F-20: Stored user text is sent to the planner as a `system` message.** **FIXED 2026-10-07 (Phase 2, `4dc3b9e`)**: memories passed as delimited data in the user prompt.
 - **Where:** `backend/src/agent/runtime.js`, step 0/1. `preContextStr` embeds short-term memories (which contain raw user text and prior report text) and is added to the planner history with `role: "system"`.
 - **Problem:** text a user typed in an earlier turn comes back to the model with system authority. This is a server-side path around the F-06 fix.
 
@@ -194,13 +195,13 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Where:** `src/pages/ChatPage.jsx`.
 - **Problem:** the frontend still doesn't render `footer` or `model_generated` for `agent_response`. A fallback is visible to the analyst only through the prose notice.
 
-**F-22: `askFoundation` assumes well-formed history.**
+**F-22: `askFoundation` assumes well-formed history.** **FIXED 2026-10-07 (Phase 2, `4dc3b9e`)**
 - **Where:** `backend/src/llm/foundation.js:14`.
 - **Problem:** before the F-06 fix, a single `null` history entry made every model call throw inside its `try`, return `null` and silently fall back. The chat endpoint now filters these out, but `askFoundation` itself still has no guard for internal callers.
 
-**F-23: No strength check on `JWT_SECRET`.** Any non-blank value (for example `secret`) is accepted.
+**F-23: No strength check on `JWT_SECRET`.** Any non-blank value (for example `secret`) is accepted. **FIXED 2026-10-07 (Phase 2, `ecdbc8a`)**: 32+ characters, 8+ distinct, not a known published value.
 
-**F-24: The token middleware doesn't check that the user still exists.**
+**F-24: The token middleware doesn't check that the user still exists.** **FIXED 2026-10-07 (Phase 2, `ecdbc8a`)**: user looked up on every request; role from the database.
 - **Where:** `backend/src/middleware/auth.middleware.js:15–22`.
 - **Problem:** it trusts `id` and `role` from the token without a database lookup, and tokens last 7 days (`auth.controller.js:39`) with no revocation. Deleted users keep access until their token expires. A forged token can name any user id or `role: 'admin'`.
 
@@ -214,7 +215,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 
 ### Found 2026-09-16 (third pass)
 
-**F-29: Model evidence is still keyed by tool name, so repeated tool calls overwrite each other.**
+**F-29: Model evidence is still keyed by tool name, so repeated tool calls overwrite each other.** **FIXED 2026-10-07 (Phase 2, `0d862e2`)**
 - **Where:** `backend/src/agent/runtime.js`, evidence aggregation (`structuredEvidence.evidence[result.tool] = …`).
 - **Problem:** the blocker-3 fix keyed `raw_logs` per invocation, but the evidence sent to the reasoning model is still keyed by tool name. If a plan calls `searchSecurityLogs` twice, the model sees only one search's `totalMatches` and sample logs, while `total_hits` counts both.
 
@@ -222,15 +223,15 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Where:** `backend/src/agent/runtime.js`, `sourceLabel` (last one wins).
 - **Problem:** in a multi-tool run it names one index or URL.
 
-**F-31: The interrupted-run sweep assumes one backend process per database.**
+**F-31: The interrupted-run sweep assumes one backend process per database.** **DOCUMENTED 2026-10-07 (Phase 2, docs)**: documented in DEPLOY.md and CAPTURE_RUNBOOK.md with a check; behaviour unchanged.
 - **Where:** `RunModel.markInterruptedRuns`.
 - **Problem:** if two backend processes share one SQLite file (a cluster, or an accidental second start), a starting process marks the other *live* process's running runs as `interrupted`.
 
-**F-32: The purge script's dry run opens the database read-write.**
+**F-32: The purge script's dry run opens the database read-write.** **FIXED 2026-10-07 (Phase 2, `da2dcae`)**
 - **Where:** `backend/scripts/purgeMockThreatIntel.js`, `main`.
 - **Problem:** it writes nothing, but it doesn't use the read-only flag the way `scripts/dbReport.js` does.
 
-**F-33: "View Full Details" mixes every tool's records in one list.**
+**F-33: "View Full Details" mixes every tool's records in one list.** **FIXED 2026-10-07 (Phase 2, `47fcda9`)**: Source column in View Full Details.
 - **Where:** `src/pages/ChatPage.jsx`, `LogDetailsModal`.
 - **Problem:** since F-13, all tools' records are kept but flattened into one list. The modal doesn't say which tool a record came from, and Wazuh agent-inventory entries appear alongside alerts, with most alert fields showing N/A.
 
@@ -238,11 +239,11 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Where:** `backend/src/fixtures/capture.js`.
 - **Problem:** when a question hits `--timeout-ms`, its run keeps its pending model call (F-03) while capture moves on, so later questions run alongside it. The timed-out fixture is still written, with `status: 'timeout'` and whatever calls completed.
 
-**F-35: The server logs its OpenSearch URL at startup.**
+**F-35: The server logs its OpenSearch URL at startup.** **FIXED 2026-10-07 (Phase 2, `da2dcae`)**
 - **Where:** `backend/src/server.js`, the `app.listen` callback.
 - **Problem:** the internal indexer host and port go into every startup log.
 
-**F-36: On Windows, the purge script may silently do nothing.**
+**F-36: On Windows, the purge script may silently do nothing.** **FIXED 2026-10-07 (Phase 2, `da2dcae`)**
 - **Where:** `backend/scripts/purgeMockThreatIntel.js`, the last lines.
 - **Problem:** `main()` runs only if `path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)`. On Windows, a drive-letter case difference (`c:\` vs `C:\`) makes that false, so the script exits 0 with no output. The capture, replay, backup and report scripts call `main()` unconditionally and aren't affected. `docs/CAPTURE_RUNBOOK.md` step 5 warns about this.
 
@@ -277,7 +278,7 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Not recorded:** the selection was never persisted, so for any saved report there is no way to tell what had been selected.
 - **Decision (2026-09-18):** removed rather than made real. HiSec and Honeypot are not being built. The selector, the request field, the controller gate (including the dead `'all'` branch) and the unused service parameter are gone; every request now runs. Regression tests: `backend/test/chatRequest.test.js` (3 tests) assert that a body with no `sources` field, a body with only `text`, and a stray `sources: ['hisec']` from an older client all run normally instead of being refused. The selector's CSS was removed too (`.composer-toolbar`, `.agent-dropdown-*`, `.dropdown-item` in `src/pages/ChatPage.css`).
 
-**F-40: The log-details modal shows raw markdown in its summary line.**
+**F-40: The log-details modal shows raw markdown in its summary line.** **FIXED 2026-10-07 (Phase 2, `47fcda9`)**
 - **Where:** `src/pages/ChatPage.jsx`, `TruncatedSummary` inside the modal header, which renders `m.summary` as plain text while the chat bubble renders it through `parseToTokens`.
 - **Problem:** asterisks show literally, e.g. `**Model unavailable: this response was not generated by a model.**`. Pre-existing for any bold in a report; now guaranteed visible, because the F-01 fallback notice is bold. Observed in the UI smoke test on 2026-09-18.
 
@@ -291,7 +292,7 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Where:** `backend/src/utils/parser.util.js`.
 - **Problem:** `\b(alert|fail|log|…)\b` misses plurals and inflections (`alerts`, `failed`, `logons`, `logs`), and `vulnerab` can never match because it's always followed by more letters. After F-43 this only affects which chat-phrase messages are kept away from the conversational path; it's no longer a routing hole.
 
-**F-46: The firewall fan-out also runs on vulnerability searches.** Due in Phase 2.5. A firewall-scoped query against the vulnerability index costs a request and returns nothing useful.
+**F-46: The firewall fan-out also runs on vulnerability searches.** Due in Phase 2.5. A firewall-scoped query against the vulnerability index costs a request and returns nothing useful. **FIXED 2026-10-07 (Phase 2, `0d862e2`)**
 
 **F-47: `docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` predate the 2026-10-07 consolidation.** *Runbook paths now point at this repo; its bundle contents and steps are rebuilt in Phase 3.* Paths, line numbers and the bundle contents predate the merge. The runbook is rebuilt in Phase 3; the pipeline map needs a refresh after Phase 2.
 
@@ -312,6 +313,20 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 **F-53: Frontend `npm audit`: 3 issues, all build-time only.** `nanoid` (high), `source-map-js` (high) and `postcss` (moderate) sit under Vite's build toolchain, not in the browser bundle. None come from `react-markdown`. Fix with the Phase 2.15 audit step.
 
 **F-54: The "data question" detector is a heuristic.** `looksLikeDataQuestion()` (`backend/src/services/assistant.service.js`) needs a security-data term plus a "live" cue ("show", "today", "our", …) or an IP address. It only decides whether to *offer* the Search Wazuh button, never what the model is asked, so a miss costs a click, not an invented answer.
+
+### Found 2026-10-07 (Phase 2)
+
+**F-55: Changing a password doesn't sign out other sessions.** Tokens last 7 days and there is no token versioning, so a session opened before a password change keeps working until it expires. F-24's per-request lookup does lock out *deleted* accounts at once. Fix: a `token_version` column checked by the middleware and bumped on password change.
+
+**F-56: Only the default admin is forced to change its password.** Accounts an admin creates keep the initial password the admin chose, with a 6-character minimum (`UserModel.create`). Consider flagging new accounts with `must_change_password` too, and raising the minimum to 12 to match the change-password policy.
+
+**F-57: Login has no rate limit or lockout.** `POST /api/auth/login` can be tried indefinitely, so passwords can be brute-forced over the network. Add a per-account and per-IP limit.
+
+**F-58: The approval mechanism has no way to grant approval.** `blockIpAction` runs only with `context.approval` for exactly that tool and those parameters, and nothing in the product creates one, so blocking is impossible by design today. Building the human-approval step (UI, endpoint, audit record) is the prerequisite for any real firewall integration.
+
+**F-59: Leftover CSS for removed status claims.** `.lp-secure-badge`, `.lp-status-bar` and `.status-indicator` rules remain in the stylesheets, unused. Harmless; delete during the next UI pass.
+
+**F-60: Frontend `npm audit` (F-53) still shows the three build-time issues.** Phase 2.15 covered the backend only, as specified. They're in Vite's toolchain, not the browser bundle.
 
 ## Run logging (added 2026-09-16)
 
