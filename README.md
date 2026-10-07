@@ -87,6 +87,7 @@ ChatBot/
    ```
 
 ## API Endpoints (Backend)
-- `POST /api/chat`: Main operational endpoint.
+- `POST /api/chat/stream`: General chat with the model, streamed as server-sent events (`meta`, `token`, `error`, `done`). See `docs/ASSISTANT_CHAT.md`.
+- `POST /api/chat`: Search Wazuh (the investigation pipeline).
   - **Payload**: `{ "text": "user query", "history": [] }`
   - **Response**: Returns a JSON object containing the LLM summary, raw parsed logs, total accurate hit counts, and source execution details.

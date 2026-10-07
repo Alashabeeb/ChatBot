@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings, Database } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import ChatMessage, { TypingDots } from '../components/ChatMessage';
+import ChatMessage, { PendingSearch } from '../components/ChatMessage';
+import { streamChat, buildHistory, ChatHttpError } from '../lib/chatStream';
 import DataCard from '../components/DataCard';
 import ChartCard from '../components/ChartCard';
 import Sidebar from '../components/Sidebar';
@@ -42,7 +43,8 @@ const INITIAL_MESSAGES = [
   {
     role: 'assistant',
     type: 'text',
-    text: 'Welcome to SOC ChatBot. I am connected to Wazuh and Firewall telemetry. Ask me about agent status, recent alerts, authentication failures, firewall activity, or CVE vulnerabilities.',
+    isWelcome: true,
+    text: 'Welcome to SOC ChatBot. Ask me anything, from drafting an email to explaining a log line or writing a script.\n\nTurn on **Search Wazuh** to query your live Wazuh and firewall telemetry: agent status, recent alerts, authentication failures, firewall activity or CVE vulnerabilities.',
     timestamp: new Date().toISOString()
   }
 ];
@@ -54,6 +56,11 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  // 'chat' streams from the model; 'siem' runs the Search Wazuh pipeline. Remembered per browser.
+  const [searchWazuh, setSearchWazuh] = useState(() => {
+    try { return localStorage.getItem('soc_search_wazuh') === '1'; } catch { return false; }
+  });
+  const [pendingSearch, setPendingSearch] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modalData, setModalData] = useState(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
@@ -64,8 +71,18 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [isQueriesModalOpen, setIsQueriesModalOpen] = useState(false);
   
   const scrollRef = useRef(null);
+  // Follow new output only while the user is at the bottom; scrolling up to read stops following.
+  const stickToBottomRef = useRef(true);
   const textareaRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  const apiUrl = (path) => (window.location.hostname === 'localhost'
+    ? `http://localhost:3002${path}`
+    : `http://${window.location.hostname}:3002${path}`);
+
+  useEffect(() => {
+    try { localStorage.setItem('soc_search_wazuh', searchWazuh ? '1' : '0'); } catch { /* storage unavailable */ }
+  }, [searchWazuh]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('soc_auth_token');
@@ -117,36 +134,32 @@ export default function ChatPage({ currentUser, onLogout }) {
     fetchQueries();
   }, [loadSessionsFromDB, fetchQueries]);
 
-  // Auto-scroll
+  // Auto-scroll, only while following the bottom of the conversation
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isTyping]);
+    if (!scrollRef.current || !stickToBottomRef.current) return;
+    // Wait one frame so newly added content has its final height.
+    const frame = requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [messages, isTyping, pendingSearch]);
+
+  function handleMessagesScroll() {
+    const el = scrollRef.current;
+    if (el) stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
 
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 140) + 'px';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
     }
   }, [input]);
 
-  async function getBackendReply(text, signal) {
+  async function getBackendReply(text, history, signal) {
     try {
-      const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:3002/api/chat' 
-        : `http://${window.location.hostname}:3002/api/chat`;
-
-      const history = messages
-        .filter(m => m.type === 'text' || m.type === 'agent_response')
-        .map(m => ({
-          role: m.role || 'assistant',
-          content: m.text || m.summary || ''
-        }))
-        .filter(m => m.content);
-
-      const response = await fetch(API_URL, {
+      const response = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ text, history }),
@@ -155,32 +168,63 @@ export default function ChatPage({ currentUser, onLogout }) {
       
       if (response.status === 401 || response.status === 403) {
         onLogout();
-        return { type: 'text', text: '⚠️ Session expired. Please log in again.' };
+        return { type: 'text', isError: true, text: 'Your session expired. Please log in again.' };
       }
 
       const data = await response.json();
       
       if (!response.ok) {
-        return {
-          type: 'text',
-          text: `⚠️ ${data.error || `Request failed with status ${response.status}.`}`
-        };
+        return { type: 'text', isError: true, text: data.error || `Request failed with status ${response.status}.` };
       }
       
       return data;
     } catch (error) {
       if (error.name === 'AbortError') {
-        return {
-          type: 'text',
-          text: '⏹️ Prompt response generation was cancelled.'
-        };
+        return { type: 'text', isError: true, text: 'Search stopped.' };
       }
       console.error("Backend Error:", error);
-      return {
-        type: 'text',
-        text: `⚠️ Connection Error: ${error.message}`
-      };
+      return { type: 'text', isError: true, text: `Connection error: ${error.message}` };
     }
+  }
+
+  /**
+   * General chat: streams the model's answer into the assistant message `id` as it is generated.
+   * Returns the finished message.
+   */
+  async function streamAssistantReply(id, text, history, signal) {
+    let msg = { id, role: 'assistant', type: 'text', text: '', isStreaming: true, question: text, timestamp: new Date().toISOString() };
+    const update = (patch) => {
+      msg = { ...msg, ...patch };
+      setMessages(prev => prev.map(m => (m.id === id ? msg : m)));
+    };
+    try {
+      await streamChat({
+        url: apiUrl('/api/chat/stream'),
+        headers: getAuthHeaders(),
+        body: { text, history },
+        signal,
+        onEvent: ({ event, data }) => {
+          if (event === 'meta') update({ request_id: data.request_id });
+          else if (event === 'token') update({ text: msg.text + data.text });
+          else if (event === 'error') update({ errorNotice: data.message });
+          else if (event === 'done') update({ truncated: data.truncated, suggestSearch: data.suggest_search, modelGenerated: data.model_generated });
+        }
+      });
+      // Nothing generated at all: show the notice as the message itself.
+      if (!msg.text && msg.errorNotice) update({ text: msg.errorNotice, errorNotice: undefined, isError: true });
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        update(msg.text ? { stopped: true } : { text: 'Stopped before the model answered.', isError: true });
+      } else if (error instanceof ChatHttpError && (error.status === 401 || error.status === 403)) {
+        update({ text: 'Your session expired. Please log in again.', isError: true });
+        onLogout();
+      } else {
+        const message = error instanceof ChatHttpError ? error.message : `Connection error: ${error.message}`;
+        update(msg.text ? { errorNotice: message } : { text: message, isError: true });
+      }
+    }
+    update({ isStreaming: false });
+    return msg;
   }
 
   async function saveMessageToDB(sessionId, msg) {
@@ -210,12 +254,15 @@ export default function ChatPage({ currentUser, onLogout }) {
     }
   }
 
-  async function handleSend(overrideText) {
+  async function handleSend(overrideText, { forceSearch = false } = {}) {
     const text = (overrideText ?? input).trim();
     if (!text || isTyping) return;
+    const mode = forceSearch || searchWazuh ? 'siem' : 'chat';
+    const history = buildHistory(messages);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    stickToBottomRef.current = true;
 
     const userMsg = {
       id: 'msg_u_' + Date.now(),
@@ -224,8 +271,7 @@ export default function ChatPage({ currentUser, onLogout }) {
       text,
       timestamp: new Date().toISOString()
     };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
 
@@ -263,25 +309,27 @@ export default function ChatPage({ currentUser, onLogout }) {
     // Persist user message to DB
     saveMessageToDB(currentSessionId, userMsg);
 
-    const reply = await getBackendReply(text, controller.signal);
+    let assistantMsg;
+    if (mode === 'chat') {
+      const id = 'msg_a_' + Date.now();
+      setMessages(prev => [...prev, { id, role: 'assistant', type: 'text', text: '', isStreaming: true, question: text }]);
+      assistantMsg = await streamAssistantReply(id, text, history, controller.signal);
+    } else {
+      setPendingSearch(true);
+      const reply = await getBackendReply(text, history, controller.signal);
+      setPendingSearch(false);
+      assistantMsg = { id: 'msg_a_' + Date.now(), role: 'assistant', ...reply, timestamp: new Date().toISOString() };
+      setMessages(prev => [...prev, assistantMsg]);
+    }
 
     setIsTyping(false);
     abortControllerRef.current = null;
-    
-    // Add isNew flag for typewriter animation
-    const assistantMsg = {
-      id: 'msg_a_' + Date.now(),
-      role: 'assistant',
-      isNew: true,
-      ...reply,
-      timestamp: new Date().toISOString()
-    };
-    
-    const finalMessages = [...newMessages, assistantMsg];
-    setMessages(finalMessages);
 
-    // Persist bot response to DB
-    saveMessageToDB(currentSessionId, assistantMsg);
+    // Persist the answer. Error notices are not saved: they would come back as conversation
+    // history the model never wrote.
+    if (!assistantMsg.isError && (assistantMsg.text || assistantMsg.summary)) {
+      saveMessageToDB(currentSessionId, assistantMsg);
+    }
     loadSessionsFromDB();
   }
 
@@ -366,7 +414,8 @@ export default function ChatPage({ currentUser, onLogout }) {
   }
 
   function handleKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Enter sends, Shift+Enter adds a new line. Ignore Enter while an input method is composing.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -495,11 +544,11 @@ export default function ChatPage({ currentUser, onLogout }) {
 
         <main className="chat-main">
           {/* Message List */}
-          <div className="chat-messages" ref={scrollRef}>
+          <div className="chat-messages" ref={scrollRef} onScroll={handleMessagesScroll}>
             {messages.map((m, i) => (
               <div key={m.id || i}>
                 {m.type === 'text' && (
-                  <ChatMessage message={m} isLast={i === messages.length - 1} />
+                  <ChatMessage message={m} onSearchWazuh={(question) => handleSend(question, { forceSearch: true })} />
                 )}
                 {m.type === 'data_card' && (
                   <DataCard source={m.source} rows={m.rows} footer={m.footer} />
@@ -509,7 +558,7 @@ export default function ChatPage({ currentUser, onLogout }) {
                 )}
                 {m.type === 'agent_response' && (
                   <div className="agent-response-card">
-                    <ChatMessage message={{ role: 'assistant', text: m.summary, isNew: m.isNew }} />
+                    <ChatMessage message={{ role: 'assistant', text: m.summary }} badge="Searched Wazuh" />
                     <div className="agent-response-actions">
                       <button 
                         className="view-logs-btn"
@@ -548,7 +597,7 @@ export default function ChatPage({ currentUser, onLogout }) {
             ))}
             
             <AnimatePresence>
-              {isTyping && <TypingDots />}
+              {pendingSearch && <PendingSearch />}
             </AnimatePresence>
           </div>
 
@@ -562,15 +611,16 @@ export default function ChatPage({ currentUser, onLogout }) {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask SOC Security Assistant..."
+                  placeholder={searchWazuh ? 'Ask about your Wazuh and firewall data…' : 'Message SOC Assistant…'}
                   className="composer-textarea"
+                  aria-label="Message"
                 />
                 {isTyping ? (
                   <button
                     onClick={handleCancel}
                     className="send-btn cancel-btn"
-                    aria-label="Cancel prompt generation"
-                    title="Cancel generation"
+                    aria-label="Stop generating"
+                    title="Stop generating"
                   >
                     <Square size={14} fill="currentColor" />
                   </button>
@@ -585,9 +635,24 @@ export default function ChatPage({ currentUser, onLogout }) {
                   </button>
                 )}
               </div>
+              <div className="composer-tools">
+                <button
+                  type="button"
+                  className={`mode-toggle ${searchWazuh ? 'is-on' : ''}`}
+                  onClick={() => setSearchWazuh(v => !v)}
+                  aria-pressed={searchWazuh}
+                  title={searchWazuh ? 'Answers come from your Wazuh and firewall data. Click to switch to general chat.' : 'Search your live Wazuh and firewall data instead of general chat.'}
+                >
+                  <Database size={14} />
+                  Search Wazuh
+                </button>
+                <span className="composer-hint">Enter to send · Shift+Enter for a new line</span>
+              </div>
             </div>
             <div className="composer-footer">
-              SOC AI can make mistakes. Please verify critical security alerts.
+              {searchWazuh
+                ? 'Answers are based on your Wazuh and firewall data. Verify critical alerts before acting.'
+                : 'SOC Assistant can make mistakes, and it cannot see your security data unless Search Wazuh is on.'}
             </div>
           </div>
         </main>

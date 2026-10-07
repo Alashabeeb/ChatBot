@@ -7,6 +7,7 @@ Opened 2026-09-16 in the separate `ChatBot-main` folder; merged into this repo o
 **Status by phase of the October consolidation plan:**
 - **Phase 0 (hotfix on `main`):** F-42 mitigated.
 - **Phase 1 (merge):** everything under "Fixed" below is now on `merge-hardening`. F-43 and F-44 fixed.
+- **Assistant chat (branch `assistant-chat`, before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - Production runs `main`, so **none of the Phase 1 fixes are live until `merge-hardening` is merged and deployed.** Until then production still has F-00, F-01, F-06, F-08a and F-43.
 
 ---
@@ -111,7 +112,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Problem:** every error becomes `null` or a quiet switch to the legacy planner, with only a `console.warn`.
 - **Partly addressed by F-01:** the response now flags a rule-based plan and a report the model didn't write. The actual error (timeout, HTTP status, bad JSON) still isn't passed on or recorded anywhere except the console.
 
-**F-03: No timeout on model calls. Likely cause of slow and stalled runs.**
+**F-03: No timeout on model calls. Likely cause of slow and stalled runs.** **Fixed for general chat (`assistant-chat`):** `/api/chat/stream` has a first-token timeout and an idle timeout, tested against a server that never answers and one that stalls mid-answer. **Still open for the Search Wazuh pipeline** (`askFoundation`), due in Phase 2.2.
 - **Where:** `backend/src/llm/foundation.js`, the `axios.post` in `askFoundation` passes `{ timeout: 0 }`, which in axios means no timeout.
 - **Refused vs. hung:** if the model server *refuses* the connection (down, wrong port), axios rejects straight away, the `catch` fires, and the run falls back to rule-based logic. If the server *hangs* (accepts the connection but never answers, for example stuck on load or an overloaded GPU), nothing ever throws. The promise stays pending forever, so the `catch` that would trigger the fallback never runs.
 - **Effect on a run:**
@@ -294,9 +295,23 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 
 **F-47: `docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` still describe the `ChatBot-main` folder.** Paths, line numbers and the bundle contents predate the merge. The runbook is rebuilt in Phase 3; the pipeline map needs a refresh after Phase 2.
 
-**F-48: Two capture questions route by phrase, not by data need.**
+**F-48: Two capture questions route by phrase, not by data need.** *Since assistant chat (2026-10-07) this only affects Search Wazuh mode, where the user has explicitly asked to search; the fix there is to route only bare greetings to conversation.*
 - **Where:** `isConversational()`.
 - **Problem:** "what is going on right now" and similar contain no chat phrase, so they go to the runtime (correct). But a security question that *contains* a chat phrase and no keyword — "can you check for anything unusual" (`can you`) — still goes to the conversational path. Rarer than F-43 and fails safer (the conversational prompt forbids claiming a search), but not fixed.
+
+### Found 2026-10-07 (assistant chat)
+
+**F-49: No regenerate or edit for answers.** Expected in a ChatGPT-style UI. Not built yet: regenerating needs a way to replace the saved answer in `messages`, otherwise both versions come back on reload.
+
+**F-50: No rate limit or concurrency cap on the model.** Any logged-in user can start many long streams at once and tie up a shared 8B model. Worth a per-user limit (for example 2 concurrent streams) before wide rollout.
+
+**F-51: Answer flags aren't saved.** "Stopped", "cut off" and "Search Wazuh for this" exist only until the page reloads; the `messages` table has no column for them. The run record does keep `report` (`stopped`, `model_truncated`, …).
+
+**F-52: Frontend bundle is 885 kB** after adding the Markdown renderer (the previous size wasn't measured). Vite warns above 500 kB. Code-splitting the log modal and charts would recover most of it.
+
+**F-53: Frontend `npm audit`: 3 issues, all build-time only.** `nanoid` (high), `source-map-js` (high) and `postcss` (moderate) sit under Vite's build toolchain, not in the browser bundle. None come from `react-markdown`. Fix with the Phase 2.15 audit step.
+
+**F-54: The "data question" detector is a heuristic.** `looksLikeDataQuestion()` (`backend/src/services/assistant.service.js`) needs a security-data term plus a "live" cue ("show", "today", "our", …) or an IP address. It only decides whether to *offer* the Search Wazuh button, never what the model is asked, so a miss costs a click, not an invented answer.
 
 ## Run logging (added 2026-09-16)
 

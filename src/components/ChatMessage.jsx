@@ -1,87 +1,106 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Copy, Check, Database, AlertTriangle, Scissors, Square } from 'lucide-react';
 import './ChatMessage.css';
 
-// Custom Markdown Tokenizer
-function parseToTokens(text) {
-  const tokens = [];
-  const regex = /(\*\*.*?\*\*|\*.*?\*|\n)/g;
-  let lastIndex = 0;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      tokens.push({ type: 'text', value: text.slice(lastIndex, match.index) });
+/** Copies text, with a fallback for plain-HTTP pages where navigator.clipboard is unavailable. */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
     }
-    const m = match[0];
-    if (m === '\n') {
-      tokens.push({ type: 'newline', value: '\n' });
-    } else if (m.startsWith('**')) {
-      tokens.push({ type: 'bold', value: m.slice(2, -2) });
-    } else if (m.startsWith('*')) {
-      tokens.push({ type: 'italic', value: m.slice(1, -1) });
-    }
-    lastIndex = regex.lastIndex;
+  } catch {
+    // fall through to the legacy method
   }
-  if (lastIndex < text.length) {
-    tokens.push({ type: 'text', value: text.slice(lastIndex) });
-  }
-  return tokens;
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(area);
+  return ok;
 }
 
-function MarkdownRenderer({ tokens }) {
+function CopyButton({ text, label = 'Copy', className = '' }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <>
-      {tokens.map((t, i) => {
-        if (t.type === 'newline') return <br key={i} />;
-        if (t.type === 'bold') return <strong key={i}>{t.value}</strong>;
-        if (t.type === 'italic') return <em key={i}>{t.value}</em>;
-        return <span key={i}>{t.value}</span>;
-      })}
-    </>
+    <button
+      type="button"
+      className={`msg-action-btn ${className}`}
+      onClick={async () => {
+        if (await copyText(text)) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }
+      }}
+      aria-label={copied ? 'Copied' : label}
+      title={copied ? 'Copied' : label}
+    >
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+      <span>{copied ? 'Copied' : label}</span>
+    </button>
   );
 }
 
-function Typewriter({ text, speed = 8 }) {
-  const [revealed, setRevealed] = useState(0);
-  const tokens = parseToTokens(text);
-  const totalLength = tokens.reduce((acc, t) => acc + t.value.length, 0);
-
-  useEffect(() => {
-    if (revealed < totalLength) {
-      const timer = setTimeout(() => {
-        setRevealed(r => r + 2);
-      }, speed);
-      return () => clearTimeout(timer);
-    }
-  }, [revealed, totalLength, speed]);
-
-  if (revealed >= totalLength) {
-    return <MarkdownRenderer tokens={tokens} />;
-  }
-
-  let charsLeft = revealed;
-  const slicedTokens = [];
-  for (const token of tokens) {
-    if (charsLeft <= 0) break;
-    if (charsLeft >= token.value.length) {
-      slicedTokens.push(token);
-      charsLeft -= token.value.length;
-    } else {
-      slicedTokens.push({ ...token, value: token.value.slice(0, charsLeft) });
-      charsLeft = 0;
-    }
-  }
-
+function CodeBlock({ language, code }) {
   return (
-    <>
-      <MarkdownRenderer tokens={slicedTokens} />
-      <span className="typewriter-cursor">▋</span>
-    </>
+    <div className="md-code-block">
+      <div className="md-code-header">
+        <span>{language || 'text'}</span>
+        <CopyButton text={code} label="Copy code" className="md-code-copy" />
+      </div>
+      <pre><code>{code}</code></pre>
+    </div>
   );
 }
 
-export default function ChatMessage({ message }) {
+const markdownComponents = {
+  // Fenced code blocks: react-markdown renders <pre><code class="language-x">.
+  pre({ children }) {
+    const child = Array.isArray(children) ? children[0] : children;
+    const className = child?.props?.className || '';
+    const language = /language-([\w+#-]+)/.exec(className)?.[1];
+    const code = String(child?.props?.children ?? '').replace(/\n$/, '');
+    return <CodeBlock language={language} code={code} />;
+  },
+  a({ href, children }) {
+    return <a href={href} target="_blank" rel="noopener noreferrer nofollow">{children}</a>;
+  },
+  table({ children }) {
+    return <div className="md-table-wrap"><table>{children}</table></div>;
+  }
+};
+
+/**
+ * Markdown from the model, rendered safely: no raw HTML (react-markdown's default), javascript: and
+ * other unsafe links stripped (default URL transform), and no images. A model-written image URL
+ * would be fetched automatically by the browser, which can leak conversation content to any host.
+ */
+export function Markdown({ text }) {
+  return (
+    <div className="md">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} disallowedElements={['img']}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+/**
+ * message: { role, text, isStreaming, isError, truncated, stopped, suggestSearch, question, isWelcome }
+ * badge: optional label shown next to the assistant name (e.g. "Searched Wazuh").
+ */
+export default function ChatMessage({ message, badge, onSearchWazuh }) {
   const isUser = message.role === 'user';
+  const text = message.text || '';
+  const thinking = message.isStreaming && !text;
+  const showActions = !isUser && !message.isStreaming && !message.isWelcome && !message.isError && text;
 
   return (
     <motion.div
@@ -92,61 +111,75 @@ export default function ChatMessage({ message }) {
     >
       <div className="chat-message-container">
         <div className={`chat-content ${isUser ? 'content-user' : 'content-bot'}`}>
-          {!isUser && <span className="assistant-label">SOC Assistant</span>}
-          <div className={isUser ? 'message-bubble' : 'message-text'}>
-            {isUser ? (
-              message.text
-            ) : message.isNew ? (
-              <Typewriter text={message.text || ''} />
-            ) : (
-              <MarkdownRenderer tokens={parseToTokens(message.text || '')} />
-            )}
-          </div>
+          {!isUser && (
+            <span className="assistant-label">
+              SOC Assistant
+              {badge && <span className="assistant-badge"><Database size={11} />{badge}</span>}
+            </span>
+          )}
+
+          {isUser ? (
+            <div className="message-bubble">{text}</div>
+          ) : thinking ? (
+            <div className="typing-status" role="status">
+              <span className="typing-spinner" />
+              <span className="typing-status-text">Thinking…</span>
+            </div>
+          ) : message.isError ? (
+            <div className="msg-notice msg-notice-error" role="alert">
+              <AlertTriangle size={15} />
+              <span>{text}</span>
+            </div>
+          ) : (
+            <div className={`message-text ${message.isStreaming ? 'is-streaming' : ''}`}>
+              <Markdown text={text} />
+              {message.isStreaming && <span className="stream-cursor" aria-hidden="true" />}
+            </div>
+          )}
+
+          {!isUser && !message.isStreaming && message.errorNotice && (
+            <div className="msg-notice msg-notice-warning" role="alert">
+              <AlertTriangle size={15} />
+              <span>{message.errorNotice}</span>
+            </div>
+          )}
+          {!isUser && !message.isStreaming && message.stopped && (
+            <div className="msg-notice"><Square size={12} /><span>Stopped. This answer is incomplete.</span></div>
+          )}
+          {!isUser && !message.isStreaming && message.truncated && !message.errorNotice && !message.stopped && (
+            <div className="msg-notice msg-notice-warning"><Scissors size={14} /><span>This answer was cut off at the length limit. Ask “continue” for the rest.</span></div>
+          )}
+
+          {showActions && (
+            <div className="msg-actions">
+              <CopyButton text={text} />
+              {message.suggestSearch && onSearchWazuh && message.question && (
+                <button type="button" className="msg-action-btn msg-action-primary" onClick={() => onSearchWazuh(message.question)}>
+                  <Database size={14} />
+                  <span>Search Wazuh for this</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
   );
 }
 
-export function TypingDots() {
-  const phases = [
-    '🔍 Querying SIEM database…',
-    '🧠 Analyzing threat patterns…',
-    '🛡️ Correlating security events…',
-    '📊 Generating threat report…',
-  ];
-
-  const [phaseIndex, setPhaseIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPhaseIndex((prev) => (prev + 1) % phases.length);
-    }, 2500);
-    return () => clearInterval(interval);
-  }, []);
-
+/** Shown while a Search Wazuh request runs. It states what is happening and nothing more. */
+export function PendingSearch() {
   return (
-    <motion.div
-      className="chat-message-row row-bot"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
+    <motion.div className="chat-message-row row-bot" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="chat-message-container">
         <div className="chat-content content-bot">
-          <span className="assistant-label">SOC Assistant</span>
-          <div className="typing-status">
-            <motion.span
-              key={phaseIndex}
-              className="typing-status-text"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.3 }}
-            >
-              {phases[phaseIndex]}
-            </motion.span>
+          <span className="assistant-label">
+            SOC Assistant
+            <span className="assistant-badge"><Database size={11} />Search Wazuh</span>
+          </span>
+          <div className="typing-status" role="status">
             <span className="typing-spinner" />
+            <span className="typing-status-text">Searching Wazuh and firewall data…</span>
           </div>
         </div>
       </div>

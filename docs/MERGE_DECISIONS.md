@@ -83,6 +83,26 @@ The fan-out turns each planned search into two OpenSearch calls. Five existing t
 | `blockIpAction` re-registered (hotfix) | Caught (2) |
 | JWT fallback restored (F-08a) | **Missed at first** → F-44 test added → now caught |
 
+### Assistant chat (branch `assistant-chat`, requested before Phase 2)
+
+The request: *"talk to the LLM directly from the frontend … like ChatGPT, Gemini … able to do our day to day task"*, with latitude to decide the details.
+
+| # | Decision | Why |
+|---|---|---|
+| A1 | **The browser talks to the backend, which talks to the model.** It does not call the model directly. | The model endpoint has no authentication, and every safeguard (login, history sanitizer, honest prompt, timeouts, run records) lives in the backend. This is how ChatGPT and the others work too. |
+| A2 | **Two explicit modes:** Chat (default) and a **Search Wazuh** toggle, instead of guessing per message. | An 8B model can't reliably decide when to search, and F-43 showed what happens when routing guesses wrong: security questions answered with no data. An explicit toggle is predictable and honest. In Chat mode, likely data questions get a one-click "Search Wazuh for this". **⚠ Review:** the default could be Search Wazuh instead if analysts mostly ask about data. |
+| A3 | **The toggle is remembered per browser** (`localStorage`), not per account. | Simple, and a per-device habit. Easy to move server-side later. |
+| A4 | **New endpoint `POST /api/chat/stream`** (server-sent events); `/api/chat` is untouched. | The investigation pipeline and its fixture replay stay exactly as they were; chat gets streaming without changing them. |
+| A5 | **Streaming uses Node's `fetch`, not axios.** | Native streaming with `AbortSignal`, which makes Stop cancel the model request. Consequence: fixture replay (`FIXTURES=1`) doesn't cover Chat mode. It isn't meant to; replay is for Search Wazuh. |
+| A6 | **Defaults:** max tokens 1024, temperature 0.5, first-token timeout 60 s, idle timeout 30 s, history budget 24,000 characters. | Middle-of-the-road values for an 8B model on shared hardware. All configurable (`docs/ASSISTANT_CHAT.md`). **⚠ Review** once real latency is known. |
+| A7 | **Markdown via `react-markdown` + `remark-gfm`**, with images disallowed and raw HTML off. | Needed for code, lists and tables. Both are widely used and safe by default; the image block stops model output from making the browser fetch arbitrary URLs. |
+| A8 | **The welcome message was rewritten.** Phase 1 kept Abdulhakeem's text, but it described a data-only bot. | The product changed: it now explains both modes. |
+| A9 | **Error notices aren't saved as messages.** | Saved, they'd return as assistant history the model never wrote. The run record still has the error. |
+| A10 | **History sent to the model excludes the welcome text, errors and unfinished answers** (both modes). | Same reason as A9. This also fixes the welcome message being sent as history on every Search Wazuh request before. |
+| A11 | **The fake typewriter and rotating status text are gone.** "Thinking…" until the first real token; "Searching Wazuh and firewall data…" during a search. | They simulated activity that wasn't happening. Part of Phase 2.14 done early; the login page's fake terminal feed is still there. |
+| A12 | **The fake model used for the UI check lives only in the session scratchpad.** It isn't committed. | After `blockIpAction`, no new fake-data generators go into the codebase. Tests use their own in-test fake server. |
+| A13 | **Quick queries use the current mode.** | They're user-defined prompts; in Chat mode a data query gets the Search Wazuh button. **⚠ Review:** they could always search instead. |
+
 ### Left for later phases on purpose
 
 - **The conversational path still returns HTTP 503 when the model is down** — Phase 2.3.
