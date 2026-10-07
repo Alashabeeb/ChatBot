@@ -31,10 +31,16 @@ const CONTAMINATED = {
     messages: {
         msg_echoed_mock: `**Evidence**: lookupThreatIntel returned ${MOCK_OBJECT}`,
         msg_old_canned: 'I searched the database and intelligence sources, but found zero matching alerts or data for your query.',
-        msg_paraphrase: '**Risk Assessment**: Threat intelligence indicates the IP was tagged as a scanner with a threat score of 10.'
+        msg_paraphrase: '**Risk Assessment**: Threat intelligence indicates the IP was tagged as a scanner with a threat score of 10.',
+        // The fabricated "action" tools removed in Phase 2 (F-42).
+        msg_ip_blocked: '**Evidence**: blockIpAction returned {"status":"success","action":"IP_BLOCKED","target_ip":"203.0.113.9"}',
+        msg_blocklist_claim: 'Done. Successfully added 198.51.100.4 to the firewall blocklist.',
+        msg_miner: '**Evidence**: endpoint 001 is running unknown_miner as root at 98.5% CPU.',
+        msg_block_paraphrase: '**Next steps**: The IP 203.0.113.9 has been blocked, so no further action is needed.'
     },
     memories: {
-        mem_mock: JSON.stringify({ summary: 'Investigated 41.203.12.56; threat intel reports it is not malicious.', keyEntities: ['41.203.12.56', 'scanner'] })
+        mem_mock: JSON.stringify({ summary: 'Investigated 41.203.12.56; threat intel reports it is not malicious.', keyEntities: ['41.203.12.56', 'scanner'] }),
+        mem_miner: JSON.stringify({ summary: 'Agent 001 compromised: unknown_miner process found.', keyEntities: ['001', 'unknown_miner'] })
     }
 };
 
@@ -42,7 +48,10 @@ const CLEAN = {
     messages: {
         msg_user: 'Check IP 41.203.12.56',
         msg_clean_report: `**Executive Summary**: 3 sshd authentication failures from 41.203.12.56, consistent with a port scan followed by brute force.\n**Confidence Score**: 80%\n\n${THREAT_INTEL_ABSENT_NOTE}`,
-        msg_fixed_canned: `I searched the available data sources, but found zero matching alerts or data for your query.\n\n${THREAT_INTEL_ABSENT_NOTE}`
+        msg_fixed_canned: `I searched the available data sources, but found zero matching alerts or data for your query.\n\n${THREAT_INTEL_ABSENT_NOTE}`,
+        // Real firewall activity says "blocked" all the time; it must not be quarantined.
+        msg_real_firewall: '**Answer**: The firewall blocked 42 inbound connections from 198.51.100.7 in the last hour. Consider adding it to the blocklist after verifying ownership.',
+        msg_real_miner_rule: '**Answer**: Wazuh rule 100201 (possible cryptocurrency miner) fired twice on web-01.'
     },
     memories: {
         mem_clean: JSON.stringify({ summary: 'Brute force attempts against web-01 from 41.203.12.56.', keyEntities: ['41.203.12.56', 'web-01'] })
@@ -97,7 +106,8 @@ test('scan flags every contaminated record and no clean one', () => {
     try {
         assert.deepEqual(scan(db).map(h => h.id).sort(), ids(CONTAMINATED));
         // Signature-only mode still catches the verbatim mock and the old canned claim.
-        assert.deepEqual(scan(db, { signatureOnly: true }).map(h => h.id).sort(), ['msg_echoed_mock', 'msg_old_canned']);
+        assert.deepEqual(scan(db, { signatureOnly: true }).map(h => h.id).sort(),
+            ['mem_miner', 'msg_blocklist_claim', 'msg_echoed_mock', 'msg_ip_blocked', 'msg_miner', 'msg_old_canned']);
     } finally {
         db.close();
     }

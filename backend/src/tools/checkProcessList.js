@@ -1,2 +1,23 @@
-export const checkProcessListSchema = { name: 'checkProcessList', description: 'Use this tool to check the running processes on a specific endpoint to identify malware or unauthorized programs.', parameters: { type: 'object', properties: { endpointId: { type: 'string', description: 'The Agent ID or Hostname to query.' } }, required: ['endpointId'] } }; export async function checkProcessList(params) { const { endpointId } = params; console.log('[ACTION] Checking processes for endpoint: ' + endpointId); await new Promise(resolve => setTimeout(resolve, 1000)); return { status: 'success', endpoint: endpointId, processes: [ { pid: 1, name: 'systemd', user: 'root', cpu: 0.1, mem: 0.5 }, { pid: 1452, name: 'sshd', user: 'root', cpu: 0.0, mem: 0.2 }, { pid: 4891, name: 'nginx', user: 'www-data', cpu: 0.5, mem: 1.2 }, { pid: 9021, name: 'unknown_miner', user: 'root', cpu: 98.5, mem: 15.4 } ], timestamp: new Date().toISOString() }; }
+export const PROCESS_DATA_UNAVAILABLE_REASON = 'Process inspection is not implemented: no endpoint process data source is connected.';
 
+/**
+ * Read-only. Until a real process data source (for example Wazuh syscollector) is wired in, this
+ * reports that explicitly instead of returning a process list. The runtime treats it as an
+ * unavailable source: never evidence, and noted in the report.
+ */
+export const checkProcessListTool = {
+    name: 'checkProcessList',
+    description: 'Checks the running processes on a specific endpoint. Not connected to a process data source yet: currently returns an explicit "unavailable" result with no process list.',
+    parameters: {
+        type: 'object',
+        properties: {
+            endpointId: { type: 'string', description: 'The Agent ID or Hostname to query.' }
+        },
+        required: ['endpointId']
+    },
+    execute: async (params) => ({
+        available: false,
+        endpointId: params?.endpointId ?? null,
+        reason: PROCESS_DATA_UNAVAILABLE_REASON
+    })
+};

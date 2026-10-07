@@ -30,10 +30,11 @@ class Registry {
     }
 
     /**
-     * Lists all registered tools (useful for LLM prompting).
+     * Tools offered to the planner. Approval-gated tools (requiresHumanApproval) are never listed:
+     * the model must not even be told they exist.
      */
     listTools() {
-        return Array.from(this.tools.values()).map(tool => ({
+        return Array.from(this.tools.values()).filter(tool => !tool.requiresHumanApproval).map(tool => ({
             name: tool.name,
             description: tool.description,
             parameters: tool.parameters
@@ -45,6 +46,11 @@ class Registry {
      */
     hasTool(name) {
         return this.tools.has(name);
+    }
+
+    /** True for tools that may only run with an explicit human approval (see tools/gateway.js). */
+    requiresHumanApproval(name) {
+        return this.tools.get(name)?.requiresHumanApproval === true;
     }
 }
 

@@ -11,6 +11,8 @@ import { searchSecurityLogsTool } from '../tools/searchSecurityLogs.js';
 import { getEndpointStatusTool } from '../tools/getEndpointStatus.js';
 import { lookupThreatIntelTool } from '../tools/lookupThreatIntel.js';
 import { searchMemoryTool } from '../tools/searchMemory.js';
+import { checkProcessListTool } from '../tools/checkProcessList.js';
+import { blockIpActionTool } from '../tools/blockIpAction.js';
 
 // Memory Subsystem
 import { memoryManager } from '../memory/manager.js';
@@ -25,8 +27,10 @@ registry.registerTool(searchSecurityLogsTool);
 registry.registerTool(getEndpointStatusTool);
 registry.registerTool(lookupThreatIntelTool);
 registry.registerTool(searchMemoryTool);
-// blockIpAction and checkProcessList are NOT registered (hotfix 8fef3d9): both return fabricated
-// results. Never let the planner trigger a blocking action on its own judgement.
+// Read-only, and honest: returns "not available" until a process data source exists.
+registry.registerTool(checkProcessListTool);
+// Approval-gated: never offered to the planner, and refused by the gateway without a human approval.
+registry.registerTool(blockIpActionTool);
 
 /**
  * Where the report text came from. Only 'model' means the model wrote it.
@@ -55,6 +59,13 @@ function buildFooter(reportSource, plannerSource, durationMs) {
 }
 
 export const THREAT_INTEL_ABSENT_NOTE = '**Threat Intelligence**: Not available. No threat intelligence source is configured, so no reputation data was consulted for this report.';
+export const PROCESS_DATA_ABSENT_NOTE = '**Process inspection**: Not available. No endpoint process data source is connected, so no running processes were checked.';
+
+// The note the runtime itself appends when a source had nothing to give. Not left to the model.
+const ABSENT_NOTES = {
+    lookupThreatIntel: THREAT_INTEL_ABSENT_NOTE,
+    checkProcessList: PROCESS_DATA_ABSENT_NOTE
+};
 
 /**
  * Tool result metadata for the run record: what ran, with which parameters, the query actually sent,
@@ -300,17 +311,18 @@ async function runPipeline(run, text, history) {
                 sampleLogs: minifiedLogs
             };
         }
-        else if (result.tool === 'lookupThreatIntel') {
-            // Only a real provider response counts as evidence.
-            if (result.data?.available === true) {
-                structuredEvidence.evidence[result.tool] = result.data;
-            } else {
-                structuredEvidence.unavailableSources.push({
-                    tool: result.tool,
-                    indicator: result.data?.indicator,
-                    reason: result.data?.reason || 'Threat intelligence unavailable.'
-                });
-            }
+        else if (result.data?.available === false) {
+            // A source with nothing to give (threat intel, process inspection): listed so the model
+            // knows it is absent, never placed under `evidence`.
+            structuredEvidence.unavailableSources.push({
+                tool: result.tool,
+                indicator: result.data.indicator ?? result.data.endpointId ?? null,
+                reason: result.data.reason || 'Not available.'
+            });
+        }
+        else if (result.tool === 'lookupThreatIntel' || result.tool === 'checkProcessList') {
+            // Only a real provider response (available: true) counts as evidence.
+            if (result.data?.available === true) structuredEvidence.evidence[result.tool] = result.data;
         }
         else if (result.tool === 'searchMemory') {
             structuredEvidence.evidence[result.tool] = result.data;
@@ -319,7 +331,8 @@ async function runPipeline(run, text, history) {
     // A tool that ran but had no data to give is not a successful source of evidence.
     structuredEvidence.summary.unavailable = structuredEvidence.unavailableSources.length;
     structuredEvidence.summary.successful -= structuredEvidence.summary.unavailable;
-    const threatIntelAbsent = structuredEvidence.unavailableSources.some(s => s.tool === 'lookupThreatIntel');
+    const absentTools = [...new Set(structuredEvidence.unavailableSources.map(s => s.tool))];
+    const sourceAbsent = absentTools.length > 0;
     structuredEvidence.summary.totalMatches = totalHits;
     structuredEvidence.summary.sourceTotals = sourceTotals;
     if (sourceLabels.size > 0) sourceLabel = [...sourceLabels].join(' + ');
@@ -332,7 +345,7 @@ async function runPipeline(run, text, history) {
     let finalSummary = '';
     let reportSource;
 
-    if (totalHits === 0 && (structuredEvidence.summary.successful > 0 || threatIntelAbsent) && !structuredEvidence.evidence.lookupThreatIntel && !structuredEvidence.evidence.searchMemory) {
+    if (totalHits === 0 && (structuredEvidence.summary.successful > 0 || sourceAbsent) && !structuredEvidence.evidence.lookupThreatIntel && !structuredEvidence.evidence.checkProcessList && !structuredEvidence.evidence.searchMemory) {
         finalSummary = structuredEvidence.summary.successful > 0
             ? `I searched the available data sources, but found zero matching alerts or data for your query.`
             : `I found no data for your query.`;
@@ -349,9 +362,9 @@ async function runPipeline(run, text, history) {
             reportSource = REPORT_SOURCE.MODEL_UNAVAILABLE;
         }
     }
-    // Stated by the runtime, not left to the model, so the absence is always visible.
-    if (threatIntelAbsent) {
-        finalSummary += `\n\n${THREAT_INTEL_ABSENT_NOTE}`;
+    // Stated by the runtime, not left to the model, so each absence is always visible.
+    for (const tool of absentTools) {
+        finalSummary += `\n\n${ABSENT_NOTES[tool] ?? `**${tool}**: Not available.`}`;
     }
     telemetry.reasoningDuration = Date.now() - reasonStart;
 

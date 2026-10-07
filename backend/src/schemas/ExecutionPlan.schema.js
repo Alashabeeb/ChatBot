@@ -56,6 +56,9 @@ export function validateExecutionPlan(plan, registry) {
         if (!registry.hasTool(item.tool)) {
             throw new Error(`Planner attempted to use unregistered tool: '${item.tool}'.`);
         }
+        if (registry.requiresHumanApproval(item.tool)) {
+            throw new Error(`Planner attempted to use '${item.tool}', which requires human approval and can never be planned.`);
+        }
         // Detailed parameter schema validation could be added here later using Ajv or similar
     }
 

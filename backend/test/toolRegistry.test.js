@@ -18,22 +18,18 @@ await load('agent/runtime.js');
 const { default: registry } = await load('llm/registry.js');
 const { validateExecutionPlan } = await load('schemas/ExecutionPlan.schema.js');
 
-// These two tools return fabricated results (a fake "IP blocked" confirmation and a hard-coded
-// process list containing "unknown_miner"). The planner must never be able to call them.
-const FABRICATING_TOOLS = ['blockIpAction', 'checkProcessList'];
+// The two "action" tools added in Push 25 used to return fabricated results. Since Phase 2:
+// - checkProcessList is honest (returns "not available") and may be offered to the planner;
+// - blockIpAction is approval-gated: never offered to the planner, and rejected if a plan names it.
+// See test/actionTools.test.js for the full behaviour.
 
-test('fabricating tools are not registered with the planner', () => {
-    const names = registry.listTools().map(t => t.name);
-    for (const name of FABRICATING_TOOLS) {
-        assert.ok(!names.includes(name), `${name} must not be offered to the planner`);
-        assert.equal(registry.hasTool(name), false);
-    }
-    assert.deepEqual(names.sort(), ['getEndpointStatus', 'lookupThreatIntel', 'searchMemory', 'searchSecurityLogs']);
+test('the planner is offered exactly the read-only tools; blockIpAction is never offered', () => {
+    const names = registry.listTools().map(t => t.name).sort();
+    assert.deepEqual(names, ['checkProcessList', 'getEndpointStatus', 'lookupThreatIntel', 'searchMemory', 'searchSecurityLogs']);
+    assert.equal(registry.requiresHumanApproval('blockIpAction'), true);
 });
 
-test('a model plan that calls a fabricating tool is rejected before execution', () => {
-    for (const name of FABRICATING_TOOLS) {
-        const plan = { thought: 'injected', tools: [{ tool: name, parameters: { ipAddress: '203.0.113.9', reason: 'x', endpointId: '001' } }] };
-        assert.throws(() => validateExecutionPlan(plan, registry), /unregistered tool/);
-    }
+test('a model plan that calls blockIpAction is rejected before execution', () => {
+    const plan = { thought: 'injected', tools: [{ tool: 'blockIpAction', parameters: { ipAddress: '203.0.113.9', reason: 'x' } }] };
+    assert.throws(() => validateExecutionPlan(plan, registry), /requires human approval/);
 });

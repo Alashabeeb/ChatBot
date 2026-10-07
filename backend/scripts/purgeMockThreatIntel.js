@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Quarantines records contaminated by the old lookupThreatIntel mock.
+ * Quarantines records contaminated by the old lookupThreatIntel mock, and by the fabricated
+ * blockIpAction / checkProcessList results (IP_BLOCKED, "added … to the firewall blocklist",
+ * unknown_miner) that were live between Push 25 and the Phase 0 hotfix.
  *
  * Before the fix, lookupThreatIntel returned fabricated data
  *   { malicious: false, threatScore: 10, tags: ['scanner'],
@@ -43,11 +45,19 @@ export const PATTERNS = [
     { tier: 'signature', name: 'malicious-field', pattern: /["']?\bmalicious["']?\s*[:=]\s*(true|false)\b/i },
     { tier: 'signature', name: 'scanner-tags-field', pattern: /["']?\btags["']?\s*[:=]\s*\[[^\]]*["']scanner["']/i },
     { tier: 'signature', name: 'claimed-intel-search', pattern: /searched the database and intelligence sources/i },
+    // Bounded by length, not by '.', because IP addresses contain dots.
+    // The fabricated "action" tools (F-42): blockIpAction's fake confirmation, checkProcessList's fake process.
+    { tier: 'signature', name: 'ip-blocked-action', pattern: /\bIP_BLOCKED\b/ },
+    { tier: 'signature', name: 'blocklist-success', pattern: /successfully added\b[^\n]{0,60}?\bto the firewall blocklist/i },
+    { tier: 'signature', name: 'unknown-miner', pattern: /\bunknown_miner\b/i },
     { tier: 'paraphrase', name: 'threat-score', pattern: /\bthreat\s+score\b/i },
     { tier: 'paraphrase', name: 'tagged-scanner', pattern: /\b(tagged|flagged|classified|identified|listed|labell?ed)\s+(as\s+)?(an?\s+)?["']?scanner\b/i },
     { tier: 'paraphrase', name: 'not-malicious-verdict', pattern: /\b(not|non-?)\s*malicious\b/i },
     { tier: 'paraphrase', name: 'threat-intel-result', pattern: /\bthreat\s+intel(ligence)?\s+(indicates|shows|reports|suggests|confirms|lookup\s+(shows|returned|indicates)|response|results?\b)/i },
-    { tier: 'paraphrase', name: 'mock-mention', pattern: /\bmock\b/i }
+    { tier: 'paraphrase', name: 'mock-mention', pattern: /\bmock\b/i },
+    // A reworded claim that an IP was blocked. No blocking capability has ever existed, so any such claim
+    // is unsupported. Narrow on purpose: "the firewall blocked 42 connections" is real activity, not this.
+    { tier: 'paraphrase', name: 'claimed-ip-block', pattern: /\b(?:IP|address)\b[^\n]{0,40}?\b(?:has been|was|is now)\s+(?:successfully\s+)?blocked\b/i }
 ];
 
 // Tables whose contents are fed back to the model. Table and column names are fixed here,

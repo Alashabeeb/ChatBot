@@ -1,5 +1,18 @@
 import registry from '../llm/registry.js';
 import { runLog, recordRunError } from '../observability/runContext.js';
+import { canonicalJson } from '../recording/common.js';
+
+/**
+ * An approval-gated tool runs only when the call carries context.approval for exactly this tool and
+ * these parameters, with who approved it. Nothing in the planner/runtime path ever sets it.
+ */
+function hasMatchingApproval(toolName, parameters, context) {
+    const approval = context?.approval;
+    return Boolean(approval)
+        && approval.tool === toolName
+        && typeof approval.approvedBy === 'string' && approval.approvedBy.length > 0
+        && canonicalJson(approval.parameters ?? null) === canonicalJson(parameters ?? null);
+}
 
 /**
  * Tool Gateway
@@ -28,6 +41,14 @@ export async function executeTool(toolName, parameters, context = null) {
     }
 
     const tool = registry.getTool(toolName);
+
+    if (tool.requiresHumanApproval && !hasMatchingApproval(toolName, parameters, context)) {
+        standardResponse.error = `Tool '${toolName}' requires human approval for these exact parameters; refused.`;
+        standardResponse.executionTime = Date.now() - startTime;
+        runLog.error(`[Gateway Refused] ${standardResponse.error}`);
+        recordRunError('tool', standardResponse.error, { tool: toolName });
+        return standardResponse;
+    }
 
     try {
         runLog.info(`[Gateway Executing] Tool: ${toolName} | Params:`, JSON.stringify(parameters));
