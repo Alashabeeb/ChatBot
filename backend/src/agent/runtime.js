@@ -3,6 +3,7 @@ import { AgentContext } from './context.js';
 import { generateLLMPlan } from './planner.js';
 import { executePlan } from './executor.js';
 import { askFoundation, MODEL_NAME } from '../llm/foundation.js';
+import { LLM_REPORT_TIMEOUT_MS } from '../config/env.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
 
 // Central Tool Registration
@@ -181,15 +182,17 @@ async function runPipeline(run, text, history) {
     // 0. Context Enrichment (Memory)
     // ==========================================
     const preMemories = await memoryManager.retrieve(userId, text);
-    const preContextStr = `Recent Context: ${JSON.stringify(preMemories.shortTerm.slice(0,2))}\nPreferences: ${JSON.stringify(preMemories.longTerm.filter(m => m.category === 'preference'))}`;
+    const storedContext = {
+        recent: preMemories.shortTerm.slice(0, 2).map(m => m.content),
+        preferences: preMemories.longTerm.filter(m => m.category === 'preference').map(m => m.content)
+    };
     
     // ==========================================
     // 1. LLM Planning Phase
     // ==========================================
     const planStart = Date.now();
-    // Pass the preContextStr as part of the history context for the planner
-    const enrichedHistory = [...context.conversationHistory, { role: "system", content: preContextStr }];
-    const planResult = await generateLLMPlan(text, enrichedHistory);
+    // Memories are passed as data inside the planner's user prompt, never with system authority (F-20).
+    const planResult = await generateLLMPlan(text, context.conversationHistory, { storedContext });
     const { tools: plan, source: plannerSource } = planResult;
     run.planner = {
         source: plannerSource,
@@ -353,7 +356,7 @@ async function runPipeline(run, text, history) {
     } else {
         const reasoningPrompt = `User Request: "${text}"\n\nStructured Evidence JSON:\n${JSON.stringify(structuredEvidence, null, 2)}`;
 
-        const llamaSummary = await askFoundation(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, context.conversationHistory);
+        const llamaSummary = await askFoundation(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, context.conversationHistory, { timeout: LLM_REPORT_TIMEOUT_MS });
         if (llamaSummary) {
             finalSummary = llamaSummary;
             reportSource = REPORT_SOURCE.MODEL;
@@ -385,7 +388,8 @@ async function runPipeline(run, text, history) {
         }).catch(err => runLog.error("[Memory Summarization Failed]", err));
     } else {
         // Just store short term interaction
-        memoryManager.write(userId, 'conversation', { user: text, bot: finalSummary }, { isImportant: false });
+        memoryManager.write(userId, 'conversation', { user: text, bot: finalSummary }, { isImportant: false })
+            .catch(err => runLog.error('[Memory Write Failed]', err.message)); // F-12: never an unhandled rejection
     }
 
     // ==========================================

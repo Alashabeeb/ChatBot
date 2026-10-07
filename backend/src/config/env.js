@@ -23,6 +23,14 @@ export const LLM_STREAM_IDLE_TIMEOUT_MS = numberSetting('LLM_STREAM_IDLE_TIMEOUT
 // Conversation history sent with each message, in characters (~4 characters per token).
 export const LLM_CHAT_HISTORY_CHAR_BUDGET = numberSetting('LLM_CHAT_HISTORY_CHAR_BUDGET', 24000);
 export const CHAT_MAX_MESSAGE_CHARS = 40000;
+
+// Hard limits for each non-streamed model call (F-03). A hung model can never stall a request.
+export const LLM_PLANNER_TIMEOUT_MS = numberSetting('LLM_PLANNER_TIMEOUT_MS', 45000);
+export const LLM_REPORT_TIMEOUT_MS = numberSetting('LLM_REPORT_TIMEOUT_MS', 120000);
+export const LLM_MEMORY_TIMEOUT_MS = numberSetting('LLM_MEMORY_TIMEOUT_MS', 45000);
+export const LLM_CONVERSATION_TIMEOUT_MS = numberSetting('LLM_CONVERSATION_TIMEOUT_MS', 60000);
+// Used only if a caller forgets to pass one; never "no timeout".
+export const LLM_DEFAULT_TIMEOUT_MS = numberSetting('LLM_DEFAULT_TIMEOUT_MS', 60000);
 // No fallback: a default secret in source code lets anyone forge tokens. See startupCheck.js.
 export const JWT_SECRET = process.env.JWT_SECRET;
 export const ADMIN_INITIAL_USER = process.env.ADMIN_INITIAL_USER || 'admin';

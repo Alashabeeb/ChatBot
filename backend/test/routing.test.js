@@ -4,7 +4,7 @@ import { setTestEnv, stubBackends, flushBackgroundWork, USER_ID, SAMPLE_LOG, SEA
 
 setTestEnv();
 const { initDatabase } = await import('../src/config/db.js');
-const { isConversational, processChatQuery } = await import('../src/services/chat.service.js');
+const { isConversational, processChatQuery, CONVERSATION_UNAVAILABLE_TEXT } = await import('../src/services/chat.service.js');
 const { handleChat } = await import('../src/controllers/chat.controller.js');
 const { DEFAULT_QUESTIONS } = await import('../src/recording/common.js');
 
@@ -53,12 +53,12 @@ test('a greeting goes to the conversational model, with no run and no search', a
     assert.match(llmCalls[0][0].content, /conversational interface/);
 });
 
-test('model down on the conversational path: HTTP 503 with the kept error shape', async (t) => {
+test('model down on the conversational path: an honest answer over HTTP 200 (Phase 2.3 replaced the 503)', async (t) => {
     stubBackends(t, { llm: 'down' });
     t.mock.method(console, 'warn', () => {});
     t.mock.method(console, 'error', () => {});
     const res = { statusCode: 200, body: undefined, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } };
     await handleChat({ body: { text: 'hello', history: [] }, user: { id: USER_ID } }, res);
-    assert.equal(res.statusCode, 503);
-    assert.deepEqual(res.body, { type: 'error', request_id: null, error: 'The AI service did not return a response.' });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body, { type: 'text', text: CONVERSATION_UNAVAILABLE_TEXT, model_generated: false });
 });

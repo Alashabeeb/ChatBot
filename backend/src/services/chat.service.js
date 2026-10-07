@@ -2,6 +2,10 @@ import { runAgentWorkflow } from '../agent/runtime.js';
 import { GREETINGS, CONVERSATIONAL_PATTERNS, hasSecurityKeyword } from '../utils/parser.util.js';
 import { askFoundation } from '../llm/foundation.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
+import { LLM_CONVERSATION_TIMEOUT_MS } from '../config/env.js';
+import { sanitizeChatHistory } from '../utils/history.util.js';
+
+export const CONVERSATION_UNAVAILABLE_TEXT = 'The AI model is unavailable right now, so I can\'t answer that. Please try again in a moment.';
 
 /**
  * Only clearly conversational messages (greetings, "what can you do", "explain ...") without any
@@ -29,22 +33,21 @@ export async function processChatQuery(text, history = [], userId = 'default_use
     const lowerText = normalizedText.toLowerCase();
     if (isConversational(lowerText)) {
         // A single, short Foundation request keeps ordinary conversation responsive.
+        // Sanitized here too, not only in the controller: scripts call this function directly.
+        const { history: safeHistory } = sanitizeChatHistory(history);
         const response = await askFoundation(
             normalizedText,
             SYSTEM_PROMPTS.CONVERSATIONAL_ASSISTANT,
-            Array.isArray(history) ? history.slice(-6) : []
+            safeHistory.slice(-6),
+            { timeout: LLM_CONVERSATION_TIMEOUT_MS }
         );
 
+        // Model down or timed out: an honest answer, not an HTTP error.
         if (!response) {
-            const error = new Error('The AI service did not return a response.');
-            error.statusCode = 503;
-            throw error;
+            return { type: 'text', text: CONVERSATION_UNAVAILABLE_TEXT, model_generated: false };
         }
 
-        return {
-            type: 'text',
-            text: response
-        };
+        return { type: 'text', text: response, model_generated: true };
     }
 
     // ==========================================
