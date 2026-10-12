@@ -63,7 +63,7 @@ function main() {
         }
         const timings = parse(row.timings_json) ?? {};
         const ms = v => (typeof v === 'number' ? `${v.toLocaleString('en-US')} ms` : '-');
-        console.log(`\ntimings: total ${ms(timings.totalDuration)}; planning ${ms(timings.planningDuration)}; searches ${ms(timings.executionDuration)}; model call: ${ms(timings.reasoningDuration)}${typeof timings.reportPromptChars === 'number' ? `; report prompt: ${timings.reportPromptChars.toLocaleString('en-US')} characters` : ''}`);
+        console.log(`\ntimings: total ${ms(timings.totalDuration)}; planning ${ms(timings.planningDuration)}; searches ${ms(timings.executionDuration)}; model call: ${ms(timings.reasoningDuration)}${typeof timings.plannerPromptChars === 'number' ? `; planner prompt: ${timings.plannerPromptChars.toLocaleString('en-US')} characters` : ''}${typeof timings.reportPromptChars === 'number' ? `; report prompt: ${timings.reportPromptChars.toLocaleString('en-US')} characters` : ''}`);
         if (grounding) {
             console.log(`\nverification: ${grounding.claims} claim(s), ${grounding.shown} shown, dropped (${grounding.dropped?.length ?? 0}):`);
             for (const d of grounding.dropped ?? []) console.log(`  - [${d.section}] ${d.reason}\n      "${d.text}"`);

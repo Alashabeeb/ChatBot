@@ -313,8 +313,11 @@ async function runPipeline(run, text, history, options = {}) {
             rawOutput: planResult.rawOutput,
             error: planResult.error,
             tools: plan,
-            replayedFrom: planResult.replayedFrom ?? null
+            replayedFrom: planResult.replayedFrom ?? null,
+            promptChars: planResult.promptChars ?? null,
+            promptTrimmed: planResult.promptTrimmed ?? []
         };
+        telemetry.plannerPromptChars = planResult.promptChars ?? null;
         telemetry.planningDuration = Date.now() - planStart;
         if (planResult.clarification && !clarified && plan.length === 0) {
             return clarificationResponse(run, planResult.clarification, { source: plannerSource, modelGenerated: true });

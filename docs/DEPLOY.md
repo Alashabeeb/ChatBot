@@ -163,6 +163,8 @@ cd $REPO; git checkout c0e2010; npm ci; cd backend; npm ci
 
 **Report request size:** `REPORT_PROMPT_MAX_CHARS` (16000) is the most the answer-writing step sends the model: system prompt, the last two chat turns (each cut to 1,000 characters) and the evidence, sent as compact JSON. Over the limit, the evidence is trimmed (example records first, then the lists) and the run record lists what was trimmed. `LLM_REPORT_MAX_TOKENS` (1000) caps the answer. Roughly 3 characters make a token, so the defaults fit a model limited to 8,192 tokens; for a 4,096-token model, set `REPORT_PROMPT_MAX_CHARS=8000` and `LLM_REPORT_MAX_TOKENS=700`.
 
+**Planner request size:** `PLANNER_PROMPT_MAX_CHARS` (10000) and `LLM_PLANNER_MAX_TOKENS` (600). The planner gets the tool list as compact JSON, the last four chat messages (questions up to 500 characters, answers up to 300) and a shortened stored context; over the limit, stored context goes first, then history. For a 4,096-token model, set `PLANNER_PROMPT_MAX_CHARS=8000`.
+
 **Follow-ups:** `FOLLOW_UP_TTL_MS` (7200000, i.e. 2 hours) and `FOLLOW_UP_MAX_ENTRIES` (50): how long, and for how many searches, the evidence is kept in memory for follow-up questions. A restart forgets it; the next follow-up simply searches again.
 
 **"Right now" questions:** `RIGHT_NOW_MIN_SEVERITY` (7). A question containing "right now", "currently", "at the moment" and similar searches only `rule.level` at or above this, unless the analyst asked for a level. `0` turns it off.

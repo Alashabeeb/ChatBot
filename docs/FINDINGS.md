@@ -381,6 +381,11 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Cause:** OpenSearch marks its counts approximate on very large totals; the code then sent 30 example records per search instead of 10 (60 in all), as indented JSON, plus the whole chat history. A production-shaped search measured about 35,800 characters (roughly 11,000 tokens), beyond a typical 8,192-token limit.
 - **Now:** 10 examples whenever the counts come from the aggregation, compact JSON, the last two chat turns cut to 1,000 characters each, a hard limit `REPORT_PROMPT_MAX_CHARS` (16,000) that trims the evidence and records what it trimmed, and `LLM_REPORT_MAX_TOKENS` (1,000) for the answer. The same search now measures about 15,400 characters (roughly 4,800 tokens), history included.
 - **Still to confirm:** the server's own error for the failed runs (`findRun.js --request-id …` after deploying `ca5ba5d` or later), and the model server's real limit (`/v1/models` on vLLM shows `max_model_len`).
+- **Confirmed 2026-10-12** from the run record: `HTTP 400` returned in 309 ms with a 30,258-character report request, an immediate refusal of the input rather than a timeout.
+
+**F-71: The planner request was unbounded too.** Found 2026-10-12 from the same run record (planning took 24.4 s of 27.6 s). **FIXED (same day).**
+- **Cause:** the tool list as indented JSON (about 5,100 characters), the whole chat history, and stored memories holding whole previous answers. A long conversation could push planning over the model's limit, and the run would fall back to the rule-based planner.
+- **Now:** compact tool list (about 3,700 characters), the last four messages shortened, stored context compact and shortened, a hard limit `PLANNER_PROMPT_MAX_CHARS` (10,000) that drops stored context first, then history, and `LLM_PLANNER_MAX_TOKENS` (600). Run records keep the planner request size and what was trimmed; `findRun.js` shows it.
 
 
 ## Run logging (added 2026-09-16)
