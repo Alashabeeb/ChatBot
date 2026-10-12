@@ -12,6 +12,7 @@ Opened 2026-09-16; all fixes and findings live in this repository on `main` sinc
 - **Phase 4 (2026-10-12):** grounded answers: every claim cited and verified in code; reports open with sources and time window. F-62 fixed. New: F-63.
 - **Phase 5 (2026-10-12):** exact counts by aggregation, week-on-week comparison, severity floor for "right now", per-stage timings. F-14 and F-63 fixed where aggregations are available. New: F-64.
 - **Phase 6 (2026-10-12):** planner and report models configurable separately (default unchanged); `evals/compare_models.py`. No external model called. New: F-65.
+- **Phase 7 (2026-10-12):** streamed search answers (verified text only), follow-ups on the previous evidence, one clarifying question. New: F-66.
 - **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
@@ -355,6 +356,11 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 **F-65: Only OpenAI-compatible chat-completion endpoints are supported.** Found in Phase 6.
 - **Where:** `backend/src/llm/foundation.js`, `backend/src/llm/streamChat.js`.
 - **Problem:** requests are `{model, messages}` with an optional bearer key, and replies are read from `choices[0].message.content`. An endpoint with a different API (for example a provider's native messages API, or a different auth header) needs a small adapter, or an OpenAI-compatible gateway in front of it.
+
+**F-66: Follow-up evidence lives in memory only.** By design (Phase 7), noted so it isn't mistaken for a bug.
+- **Where:** `backend/src/agent/evidenceCache.js`.
+- **Effect:** after a backend restart, or after `FOLLOW_UP_TTL_MS`, a follow-up searches again instead of reusing the evidence, and says nothing about it beyond the normal header. Saved conversations don't store which answer was a follow-up; the UI recognises it from the answer's opening line.
+- **Why not persisted:** it would mean a second copy of raw SIEM records on disk (they're already in `messages.raw_logs`), for a convenience.
 
 ## Run logging (added 2026-09-16)
 

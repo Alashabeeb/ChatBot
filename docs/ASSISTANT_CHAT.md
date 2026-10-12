@@ -46,6 +46,33 @@ The browser talks to the backend, and the backend talks to the model — the sam
 - **Stop in the UI:** cancels the request to the model as well.
 - **Servers that ignore `stream: true`** and return plain JSON work too.
 
+## Search Wazuh, streamed (`POST /api/chat/search/stream`, Phase 7)
+
+Search answers are verified before anyone sees them, so the model's raw tokens are never streamed.
+What streams is true at the moment it is shown:
+
+| Event | Data | When |
+|---|---|---|
+| `meta` | `{ request_id, mode: 'search' }` | the run starts |
+| `stage` | `{ stage, label }` | `planning`, `reading` (follow-up), `searching`, `analysing`, `verifying`, as each actually starts |
+| `report` | `{ markdown }` | the answer so far: the code-written header as soon as the searches finish, then again each time a statement passes verification |
+| `error` | `{ message }` | the run failed |
+| `done` | `{ response }` | last: exactly what `POST /api/chat` returns |
+
+The final answer is always rebuilt from the model's complete output, and a test pins that it matches
+the non-streamed answer. Stop cancels the model request; the run is recorded as `stopped`.
+
+**Follow-ups.** The browser sends `follow_up_of` (the latest search answer's `request_id`). If the
+question refers back ("that IP", "tell me more", "which one") or names a rule, agent, IP or user from
+that evidence, it is answered from it without planning or searching, opens with "Answered from the
+evidence of your previous search", and offers **Search again**. A time window or "search again / latest"
+always searches. The evidence is kept in memory per user for `FOLLOW_UP_TTL_MS` (2 hours).
+
+**Clarifying questions.** A request that can't be answered without guessing a key detail ("is that IP
+malicious?" with no IP and no previous search, or just "check") gets one short question starting
+"Quick question before I search:". The planner may also ask, only with no searches planned and only one
+short question. The reply is combined with the original question and is never asked about again.
+
 ## Settings (all optional, in `backend/.env`)
 
 | Variable | Default | Meaning |

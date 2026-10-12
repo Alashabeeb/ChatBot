@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings, Database } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings, Database, RefreshCw } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import ChatMessage, { PendingSearch, Markdown } from '../components/ChatMessage';
+import ChatMessage, { Markdown } from '../components/ChatMessage';
 import { labelRawLogs } from '../lib/rawLogs';
 import { streamChat, buildHistory, ChatHttpError } from '../lib/chatStream';
+import { applySearchEvent, lastSearchRequestId, startSearchMessage, isFollowUpAnswer } from '../lib/searchStream';
 import DataCard from '../components/DataCard';
 import ChartCard from '../components/ChartCard';
 import Sidebar from '../components/Sidebar';
@@ -51,7 +52,6 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [searchWazuh, setSearchWazuh] = useState(() => {
     try { return localStorage.getItem('soc_search_wazuh') === '1'; } catch { return false; }
   });
-  const [pendingSearch, setPendingSearch] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modalData, setModalData] = useState(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
@@ -133,7 +133,7 @@ export default function ChatPage({ currentUser, onLogout }) {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     });
     return () => cancelAnimationFrame(frame);
-  }, [messages, isTyping, pendingSearch]);
+  }, [messages, isTyping]);
 
   function handleMessagesScroll() {
     const el = scrollRef.current;
@@ -148,34 +148,37 @@ export default function ChatPage({ currentUser, onLogout }) {
     }
   }, [input]);
 
-  async function getBackendReply(text, history, signal) {
+  /**
+   * Search Wazuh, streamed (Phase 7): the stage the backend is actually in, then the answer as it grows.
+   * Only verified text arrives. followUpOf lets a follow-up question reuse the previous search's evidence.
+   */
+  async function streamSearchReply(id, text, history, signal, followUpOf) {
+    let msg = startSearchMessage(id, text);
+    const update = (next) => {
+      msg = next;
+      setMessages(prev => prev.map(m => (m.id === id ? msg : m)));
+    };
     try {
-      const response = await fetch(apiUrl('/api/chat'), {
-        method: 'POST',
+      await streamChat({
+        url: apiUrl('/api/chat/search/stream'),
         headers: getAuthHeaders(),
-        body: JSON.stringify({ text, history }),
-        signal
+        body: { text, history, follow_up_of: followUpOf },
+        signal,
+        onEvent: (event) => update(applySearchEvent(msg, event))
       });
-      
-      if (response.status === 401 || response.status === 403) {
-        onLogout();
-        return { type: 'text', isError: true, text: 'Your session expired. Please log in again.' };
-      }
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        return { type: 'text', isError: true, text: data.error || `Request failed with status ${response.status}.` };
-      }
-      
-      return data;
+      if (msg.isStreaming) update({ ...msg, isStreaming: false, stageLabel: null, errorNotice: 'The search ended without an answer.' });
     } catch (error) {
       if (error.name === 'AbortError') {
-        return { type: 'text', isError: true, text: 'Search stopped.' };
+        update({ id, role: 'assistant', type: 'text', text: 'Search stopped.', isError: true, isStreaming: false });
+      } else if (error instanceof ChatHttpError && (error.status === 401 || error.status === 403)) {
+        update({ id, role: 'assistant', type: 'text', text: 'Your session expired. Please log in again.', isError: true, isStreaming: false });
+        onLogout();
+      } else {
+        const message = error instanceof ChatHttpError ? error.message : `Connection error: ${error.message}`;
+        update({ id, role: 'assistant', type: 'text', text: message, isError: true, isStreaming: false });
       }
-      console.error("Backend Error:", error);
-      return { type: 'text', isError: true, text: `Connection error: ${error.message}` };
     }
+    return msg;
   }
 
   /**
@@ -245,11 +248,13 @@ export default function ChatPage({ currentUser, onLogout }) {
     }
   }
 
-  async function handleSend(overrideText, { forceSearch = false } = {}) {
+  async function handleSend(overrideText, { forceSearch = false, fresh = false } = {}) {
     const text = (overrideText ?? input).trim();
     if (!text || isTyping) return;
     const mode = forceSearch || searchWazuh ? 'siem' : 'chat';
     const history = buildHistory(messages);
+    // A follow-up can reuse the previous search's evidence; "Search again" (fresh) always searches.
+    const followUpOf = mode === 'siem' && !fresh ? lastSearchRequestId(messages) : null;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -306,11 +311,9 @@ export default function ChatPage({ currentUser, onLogout }) {
       setMessages(prev => [...prev, { id, role: 'assistant', type: 'text', text: '', isStreaming: true, question: text }]);
       assistantMsg = await streamAssistantReply(id, text, history, controller.signal);
     } else {
-      setPendingSearch(true);
-      const reply = await getBackendReply(text, history, controller.signal);
-      setPendingSearch(false);
-      assistantMsg = { id: 'msg_a_' + Date.now(), role: 'assistant', ...reply, timestamp: new Date().toISOString() };
-      setMessages(prev => [...prev, assistantMsg]);
+      const id = 'msg_a_' + Date.now();
+      setMessages(prev => [...prev, startSearchMessage(id, text)]);
+      assistantMsg = await streamSearchReply(id, text, history, controller.signal, followUpOf);
     }
 
     setIsTyping(false);
@@ -544,7 +547,14 @@ export default function ChatPage({ currentUser, onLogout }) {
                 )}
                 {m.type === 'agent_response' && (
                   <div className="agent-response-card">
-                    <ChatMessage message={{ role: 'assistant', text: m.summary }} badge="Searched Wazuh" />
+                    {m.summary && <ChatMessage message={{ role: 'assistant', text: m.summary }} badge={isFollowUpAnswer(m) ? 'From previous search' : 'Searched Wazuh'} />}
+                    {m.isStreaming && (
+                      <div className="typing-status search-stage" role="status">
+                        <span className="typing-spinner" />
+                        <span className="typing-status-text">{m.stageLabel || 'Sending your question'}</span>
+                      </div>
+                    )}
+                    {!m.isStreaming && (
                     <div className="agent-response-actions">
                       <button 
                         className="view-logs-btn"
@@ -576,15 +586,24 @@ export default function ChatPage({ currentUser, onLogout }) {
                         <FileText size={14} />
                         View Full Details
                       </button>
+                      {m.follow_up_of && m.question && (
+                        <button
+                          className="view-logs-btn"
+                          disabled={isTyping}
+                          title="This answer reused the previous search. Run a fresh search for the same question."
+                          onClick={() => handleSend(m.question, { forceSearch: true, fresh: true })}
+                        >
+                          <RefreshCw size={14} />
+                          Search again
+                        </button>
+                      )}
                     </div>
+                    )}
                   </div>
                 )}
               </div>
             ))}
             
-            <AnimatePresence>
-              {pendingSearch && <PendingSearch />}
-            </AnimatePresence>
           </div>
 
           {/* Composer */}

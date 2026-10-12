@@ -25,6 +25,7 @@ All work now happens on `main`, so pulling it brings **everything** below, not j
 | **Security updates** | `axios`, `express`, `proxy-addr`, `qs`, `body-parser` patched (`npm audit`: 0 issues) | **Backend needs `npm ci`** |
 | **No fake status** | "Encrypted session", "TLS 1.3", "System online", "Live Monitoring Active" and similar claims removed | none |
 | **Exact counts and week-on-week comparison (Phase 5)** | Each search also sends one aggregation request (size 0) for exact counts by rule, agent, source IP and level, for this window and the same window a week earlier. Answers say "Compared with the same 24 hours one week earlier: …". "Right now" questions search level 7 and above unless a level was asked for | **One extra OpenSearch request per search.** Needs `rule.id`, `agent.name`, `data.srcip`, `rule.level` and `rule.mitre.id` to be aggregatable (keyword/numeric, as in the standard Wazuh template); if not, the answer falls back to sample counts and says so. New optional setting `RIGHT_NOW_MIN_SEVERITY` |
+| **Conversation (Phase 7)** | Search answers stream: real progress stages, the sources/time-window header as soon as the searches finish, then each statement once verified. Follow-up questions reuse the previous search's evidence ("Search again" for fresh data). Ambiguous requests get one short question back | **Frontend rebuild needed.** New optional settings `FOLLOW_UP_TTL_MS` and `FOLLOW_UP_MAX_ENTRIES`. Reverse proxies must not buffer `/api/chat/search/stream` (as for `/api/chat/stream`) |
 | **Grounded answers (Phase 4)** | Search answers open with the sources and time window searched. The model must return statements with citations; each is checked against the evidence, and anything unsupported is removed before the analyst sees it | **⚠ Not yet tried with the production model.** If it can't follow the format, every search answer shows the code-written evidence summary marked "couldn't be verified". Check with the fixture replay (`--allow-model`) before deploying Phase 4. **Database migration:** adds `runs.grounding_json` |
 
 ---
@@ -124,6 +125,12 @@ Then:
    - **Pass:** nothing claims an IP was blocked or added to a blocklist.
 6. Ask `Check the running processes on agent 001`, with Search Wazuh **on**.
    - **Pass:** the answer says **process inspection is not available**. No process list, no `unknown_miner`.
+7. With Search Wazuh **on**, ask `what are the top alerts this week`.
+   - **Pass:** a progress line changes as the search runs; the "Searched: …" line appears before the rest of the answer; statements then appear one by one.
+8. Then ask `tell me more about` followed by a rule ID from that answer.
+   - **Pass:** the answer opens with "Answered from the evidence of your previous search", carries a "From previous search" badge and a **Search again** button.
+9. In a **new chat**, ask `is that IP malicious?`.
+   - **Pass:** one short question back ("Quick question before I search: Which IP address do you mean?"). Reply with an IP: the search runs, with no second question.
 
 ### 9. Send back
 
@@ -153,6 +160,8 @@ cd $REPO; git checkout c0e2010; npm ci; cd backend; npm ci
 **Time limits for the other model calls**, in ms: `LLM_PLANNER_TIMEOUT_MS` (45000), `LLM_REPORT_TIMEOUT_MS` (120000), `LLM_MEMORY_TIMEOUT_MS` (45000), `LLM_CONVERSATION_TIMEOUT_MS` (60000), `LLM_DEFAULT_TIMEOUT_MS` (60000). Raise them if the model is slow but working; lower them to fail faster when it hangs.
 
 **Models per role (Phase 6), all optional:** `PLANNER_LLM_API_URL`, `PLANNER_LLM_MODEL`, `PLANNER_LLM_API_KEY` and `REPORT_LLM_API_URL`, `REPORT_LLM_MODEL`, `REPORT_LLM_API_KEY` send the planner or the report to another OpenAI-compatible model. `LLM_MODEL` and `LLM_API_KEY` set the default's name and key. **Leave them unset to keep today's behaviour:** everything goes to `LLM_API_URL` as `foundation-sec-8b-instruct`. A role with its own URL never receives the default's key.
+
+**Follow-ups:** `FOLLOW_UP_TTL_MS` (7200000, i.e. 2 hours) and `FOLLOW_UP_MAX_ENTRIES` (50): how long, and for how many searches, the evidence is kept in memory for follow-up questions. A restart forgets it; the next follow-up simply searches again.
 
 **"Right now" questions:** `RIGHT_NOW_MIN_SEVERITY` (7). A question containing "right now", "currently", "at the moment" and similar searches only `rule.level` at or above this, unless the analyst asked for a level. `0` turns it off.
 

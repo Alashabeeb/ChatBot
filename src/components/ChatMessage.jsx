@@ -167,22 +167,3 @@ export default function ChatMessage({ message, badge, onSearchWazuh }) {
   );
 }
 
-/** Shown while a Search Wazuh request runs. It states what is happening and nothing more. */
-export function PendingSearch() {
-  return (
-    <motion.div className="chat-message-row row-bot" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <div className="chat-message-container">
-        <div className="chat-content content-bot">
-          <span className="assistant-label">
-            SOC Assistant
-            <span className="assistant-badge"><Database size={11} />Search Wazuh</span>
-          </span>
-          <div className="typing-status" role="status">
-            <span className="typing-spinner" />
-            <span className="typing-status-text">Searching Wazuh and firewall data…</span>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
