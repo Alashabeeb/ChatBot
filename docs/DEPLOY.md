@@ -24,6 +24,7 @@ All work now happens on `main`, so pulling it brings **everything** below, not j
 | **Scripts** | Backup, read-only DB report, audit, purge, capture/replay | none |
 | **Security updates** | `axios`, `express`, `proxy-addr`, `qs`, `body-parser` patched (`npm audit`: 0 issues) | **Backend needs `npm ci`** |
 | **No fake status** | "Encrypted session", "TLS 1.3", "System online", "Live Monitoring Active" and similar claims removed | none |
+| **Grounded answers (Phase 4)** | Search answers open with the sources and time window searched. The model must return statements with citations; each is checked against the evidence, and anything unsupported is removed before the analyst sees it | **⚠ Not yet tried with the production model.** If it can't follow the format, every search answer shows the code-written evidence summary marked "couldn't be verified". Check with the fixture replay (`--allow-model`) before deploying Phase 4. **Database migration:** adds `runs.grounding_json` |
 
 ---
 

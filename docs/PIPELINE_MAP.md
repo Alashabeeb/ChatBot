@@ -107,6 +107,8 @@ The model call itself is `askFoundation(prompt, systemInstruction, conversationH
 
 ## 3. Where the model response is parsed and assembled into the final report
 
+> **Changed in Phase 4 (2026-10-12).** The report model now returns JSON claims with citations. `backend/src/agent/evidenceIndex.js` (`buildEvidenceIndex`, `evidenceForModel`) builds the evidence and the index of what may be cited; `backend/src/agent/grounding.js` (`parseClaims`, `verifyClaims`, `renderGroundedReport`, and the code-written header and fallbacks) verifies and renders. `runtime.js` step 4 wires them together. The description below is the September version.
+
 | Step | File | Function | Lines |
 |---|---|---|---|
 | Raw text extraction: `response.data.choices[0].message.content.trim()` | `backend/src/llm/foundation.js` | `askFoundation` | 24 |

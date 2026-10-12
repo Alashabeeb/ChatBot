@@ -9,6 +9,7 @@ Opened 2026-09-16; all fixes and findings live in this repository on `main` sinc
 - **Phase 1 (merge):** everything under "Fixed" below. F-43 and F-44 fixed.
 - **Phase 2 (2026-10-07):** F-03, F-08b, F-11, F-12, F-16, F-20, F-22, F-23, F-24, F-29, F-32, F-33, F-35, F-36, F-40, F-42, F-46 fixed; F-31 documented. New: F-55 to F-60.
 - **Phase 3 (2026-10-12):** measurement harness (`evals/`). F-14 corrected (200 hits per search, not 10,000). F-47 closed (runbook rebuilt). Replay no longer reports a false divergence when a search failed at capture. New: F-61, F-62.
+- **Phase 4 (2026-10-12):** grounded answers: every claim cited and verified in code; reports open with sources and time window. F-62 fixed. New: F-63.
 - **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
@@ -334,10 +335,15 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Problem:** re-running one question into the same folder replaces the manifest, so it no longer describes the other fixtures. The fixture files themselves are unaffected, and replay doesn't read the manifest.
 - **Workaround (in the runbook):** re-run into a sub-folder (`--out .\fixtures\rerun`) and move the new file up.
 
-**F-62: When every search fails and the model is down, the answer says "0 matching record(s) were retrieved".** Found in Phase 3 (bundle smoke test, endpoints refusing connections).
+**F-62: When every search fails and the model is down, the answer says "0 matching record(s) were retrieved".** **FIXED 2026-10-12 (Phase 4):** a failed search is named under "Not available", and when every search fails the answer says the search could not be completed. Found in Phase 3 (bundle smoke test, endpoints refusing connections).
 - **Where:** the "model unavailable" fallback report in `backend/src/agent/runtime.js`.
 - **Problem:** a failed search is presented as an empty result, and the answer names neither the time window nor the sources that failed. An analyst could read it as "nothing happened". `evals/check.py` flags it (`H8`, `H10`).
 - **Plan:** Phase 4.4 ("every report opens with the sources and time window actually searched") covers it.
+
+**F-63: With sampled evidence, a wrong count inside the possible range can't be caught.** Found in Phase 4.
+- **Where:** `backend/src/agent/grounding.js` (count bounds), `evals/check.py` (`H3`).
+- **Problem:** each search returns at most 200 records with an exact total. When more matched, a rule's true count is only known to lie between its count in those records and that count plus the records not returned, so any count in that range is accepted, right or wrong.
+- **Plan:** Phase 5.1 (aggregate counts over all matches before the model call) makes the counts exact.
 
 ## Run logging (added 2026-09-16)
 

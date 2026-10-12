@@ -170,3 +170,40 @@ Commits: `afec39c` (2.1), `4dc3b9e` (2.2, 2.3, 2.6, 2.10), `0d862e2` (2.4, 2.5),
 
 **Also corrected:** F-14 said 10,000 hits per search. The code has returned 200 (plus the exact total) since `c0e2010`, which is already in production.
 
+## Phase 4: Grounded answers (2026-10-12)
+
+Started before the Windows capture, at your request, so there is no real baseline to compare against yet (see "Checker run" below).
+
+| # | Decision | Why |
+|---|---|---|
+| G1 | **The report model returns JSON:** `answer`, `findings`, `assessment`, `next_steps`, each a list of `{text, cite: [...]}`, plus `insufficient_evidence`. A citation is a rule ID, agent, IP, user, MITRE technique, CVE, a search total, a past investigation, or a field path in the evidence. | Requested (4.1). Statements are short and individually checkable, so one bad statement can be removed without losing the rest. |
+| G2 | **Every claim is verified in code** (`backend/src/agent/grounding.js`) and dropped if any citation fails to resolve, a cited count is outside what the evidence supports, its text names an IP, rule, technique, CVE or host not in the evidence, it contains a number no citation backs, or it gives a score or claims an action. | Requested (4.2, 4.3, 4.6). Checking the text as well as the citations matters: a model can cite something real while writing something invented. Each rule is mutation-checked on its own (22 mutants, all killed). |
+| G3 | **Dropped claims are logged in the run record** (new column `runs.grounding_json`, with the reason for each) and as `[Grounding]` warnings, **never sent to the client**. The client gets counts only, and the footer says "N unsupported statements removed". | "Dropped and logged, never shown". The text stays out of the browser payload too, not just out of the display. **Database migration** on first start. |
+| G4 | **The code writes the opening lines:** sources searched with their totals and time window, then anything not available and why. | Requested (4.4), and it can't be left to the model. It also fixes F-62: a failed search is now named as failed, never shown as "0 records". |
+| G5 | **When the model's output isn't the required JSON, or no claim survives,** nothing it wrote is shown. The analyst gets the header and a code-written count of what was retrieved (top rules, agents and source IPs), marked "couldn't be verified". `model_generated` is false. | Unverifiable text is exactly what this phase exists to stop. The counts are still useful, and computed rather than generated. |
+| G6 | **`insufficient_evidence: true` produces "Not enough evidence"** plus the code-written counts; any claims sent alongside it are ignored. Zero hits and all-searches-failed never call the model and get plain code-written answers. | Requested (4.5): never a guess. |
+| G7 | **The evidence the model sees changed shape:** a list of searches, each with a `key`, `totalMatches` and samples now carrying `ruleId` and `mitre`; `counts.byRule/byAgent/bySourceIp` (from the up-to-200 records returned, with `{atLeast, atMost}` when sampled); `mitreTechniques`; agents; past investigations. | The model can only cite what it's shown. The counts are computed in code from the records returned; Phase 5 replaces them with real aggregations. |
+| G8 | **Claims citing only past investigations are labelled** "(from a past investigation)". | They're memory, not current telemetry, and the analyst should be able to tell. |
+| G9 | **Numbers inside a rule description quoted verbatim from the evidence don't need a citation** ("…web server 400 error codes…"). | Found by the pipeline evaluation: otherwise a correct statement quoting the rule's own name was dropped. Test-first. |
+| G10 | **⚠ With sampled evidence, a count within the possible range is accepted** even if wrong: with 1,500 matches and 200 returned, "rule 5710 fired 53 times" can't be refuted when the sample shows 3 (F-63). | Exact counts need aggregation over all matches, which is Phase 5. |
+| G11 | **⚠ Not tried with the production model.** The prompt contains a worked example, and the parser tolerates code fences and text around the JSON, but whether an 8B model follows the contract reliably is unknown. | Ground rule: no live model calls. If it doesn't follow the format, every answer becomes the code-written summary; safe, but much less useful. To check before deploying: replay the captured fixtures with `--allow-model` against an endpoint you approve, or wait for Phase 6. |
+| G12 | **Not checked in code:** numbers written as words ("twelve"), and host names that are ordinary words. | Same limits as the checker (`evals/README.md`); the number rule covers digits, which is how counts are written in practice. |
+
+**Checker run (synthetic, no baseline yet).** `backend/scripts/evalSyntheticPipeline.js` runs the four invented scenarios through the real pipeline with a stub model, then scores the reports with `evals/check.py`. It also runs inside `npm test`, which fails if any fabrication reaches the analyst.
+
+| Model output | Mean score | Failing a hard check | Fabrications reaching the analyst |
+|---|---|---|---|
+| Faithful claims, through Phase 4 | 100.0 | 0 / 4 | 0 |
+| Same claims plus 8 fabrications each, through Phase 4 | 100.0 | 0 / 4 | 0 |
+| The adversarial output shown verbatim, as before Phase 4 | 76.6 | 3 / 4 | 17 |
+
+These are synthetic: a stub model that follows the format perfectly scores 100, which shows the plumbing and the safeguards work, not that a real model will. One of the eight fabrications survives in the sampled scenario (an inflated count inside the possible range, G10); it isn't one the checker can see either. The real comparison needs the captured baseline and a model endpoint you approve: replay with `--allow-model`, then `python3 evals/check.py`.
+
+**Checker changes this phase:** a count is now read up to about 110 characters after the rule ID, so a long rule description in parentheses no longer hides it (two synthetic cases added first, which failed).
+
+**Tests changed in Phase 4** (behaviour change requested, none loosened):
+- The stub report in `attribution` and `runRecord` is now a cited JSON claim.
+- Tests that inspected the old evidence shape (`evidenceKeys`, `firewallFanout`, `actionTools`, `threatIntel`) read the new one and keep their guarantees.
+- The hung-model test now gives the search a working stub, so the report stage is still reached and still times out; before, the search failure masked it.
+- The threat-intel guard caught the words "threat scores" in the new prompt; the prompt was reworded, the guard kept.
+

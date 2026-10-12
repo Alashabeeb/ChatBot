@@ -42,6 +42,8 @@ cd /Users/solomonalor/Documents/ChatBot && python3 evals/check.py evals/syntheti
 ```
 The self-test ends with `Checker self-test: N/N synthetic case(s) behaved as expected`.
 
+**For the baseline capture, use the bundle already built from `b346a38` (Phase 3) and don't rebuild it from a later commit.** The baseline must measure the answers production gives today; Phase 4 changed how answers are written. If the bundle has to be rebuilt, check out `b346a38` first (`git checkout b346a38`, build, then `git checkout main`).
+
 Build the bundle. It contains only `package.json`, `package-lock.json`, `.gitignore`, `src/` and `scripts/`, with no `.env`, `node_modules`, `data`, `fixtures`, `quarantine` or tests:
 ```bash
 cd /Users/solomonalor/Documents/ChatBot && zip -r ~/Desktop/soc-capture-bundle.zip backend/package.json backend/package-lock.json backend/.gitignore backend/src backend/scripts -x '*.DS_Store'
