@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import axios from 'axios';
 import { setTestEnv, stubBackends, flushBackgroundWork, USER_ID } from './helpers.js';
+import { isAggregationRequest } from '../scripts/lib/fakeAggregations.js';
 
 setTestEnv();
 const { initDatabase } = await import('../src/config/db.js');
@@ -82,11 +83,15 @@ test('capture writes one fixture per question: planner output, exact OpenSearch 
     assert.equal(fixture.planner.rawOutput, JSON.stringify(PLAN));
     assert.deepEqual(fixture.planner.tools, PLAN.tools);
 
-    // One planned search = two OpenSearch calls (non-firewall and firewall halves), both recorded exactly.
-    const search = fixture.calls.filter(c => c.kind === 'opensearch');
+    // One planned search = two OpenSearch searches (non-firewall and firewall halves) and, since Phase 5,
+    // an aggregation request for each; all recorded exactly.
+    const search = fixture.calls.filter(c => c.kind === 'opensearch' && !isAggregationRequest(c.request));
     assert.equal(search.length, 2);
     assert.deepEqual(search.map(c => JSON.stringify(c.request)).sort(), stubs.searchCalls.map(c => JSON.stringify(c.body)).sort(),
         'recorded queries must be exactly what was sent');
+    const aggs = fixture.calls.filter(c => c.kind === 'opensearch' && isAggregationRequest(c.request));
+    assert.deepEqual(aggs.map(c => JSON.stringify(c.request)).sort(), stubs.aggCalls.map(c => JSON.stringify(c.body)).sort());
+    assert.ok(aggs.every(c => c.response.data.aggregations.current), 'aggregation responses recorded');
     for (const call of search) assert.equal(call.path, '/wazuh-alerts-*/_search');
     const nonFirewall = search.find(c => !JSON.stringify(c.request.query.bool.must).includes('"iptables"'));
     assert.deepEqual(nonFirewall.response.data.hits.hits.map(h => h._source), LOGS, 'raw OpenSearch response recorded');
@@ -140,10 +145,15 @@ test('replay (FIXTURES=1): planner and SIEM responses come from the fixture, the
     assert.equal(run.planner.rawOutput, fixture.planner.rawOutput);
 
     // The query rebuilt from the replayed plan is exactly the captured one.
-    const replayedQueries = run.tools.filter(tool => tool.tool === 'searchSecurityLogs').map(tool => JSON.stringify(tool.query)).sort();
-    const recordedQueries = fixture.calls.filter(c => c.kind === 'opensearch').map(c => JSON.stringify(c.request)).sort();
+    const searches = run.tools.filter(tool => tool.tool === 'searchSecurityLogs');
+    const replayedQueries = searches.map(tool => JSON.stringify(tool.query)).sort();
+    const recordedQueries = fixture.calls.filter(c => c.kind === 'opensearch' && !isAggregationRequest(c.request)).map(c => JSON.stringify(c.request)).sort();
     assert.equal(replayedQueries.length, 2);
     assert.deepEqual(replayedQueries, recordedQueries);
+    // So are the aggregation requests, answered from the recording too.
+    assert.ok(searches.every(tool => tool.aggregations.available), JSON.stringify(searches.map(s => s.aggregations)));
+    assert.deepEqual(searches.map(tool => JSON.stringify(tool.aggregations.query)).sort(),
+        fixture.calls.filter(c => c.kind === 'opensearch' && isAggregationRequest(c.request)).map(c => JSON.stringify(c.request)).sort());
 
     // Downstream data is the captured raw data.
     assert.equal(run.status, 'completed');
@@ -359,7 +369,10 @@ test('replay CLI: a search that failed at capture and fails identically in repla
     const fixturesDir = path.join(tmpDir, 'failed-search');
     const { file } = await capture(t, fixturesDir);
     const fixture = listFixtureCalls(file);
-    const firewall = fixture.calls.find(c => c.kind === 'opensearch' && JSON.stringify(c.request.query.bool.must).includes('"iptables"'));
+    const isFirewall = c => c.kind === 'opensearch' && JSON.stringify(c.request.query.bool.must).includes('"iptables"');
+    const firewall = fixture.calls.find(c => isFirewall(c) && !isAggregationRequest(c.request));
+    // A search that fails never sends its aggregation request, so a real capture would not contain it.
+    fixture.calls = fixture.calls.filter(c => !(isFirewall(c) && isAggregationRequest(c.request)));
     delete firewall.response;
     firewall.error = { message: 'Request failed with status code 503', code: 'ERR_BAD_RESPONSE', status: 503, data: { error: 'unavailable' } };
     fs.writeFileSync(file, JSON.stringify(fixture));
@@ -375,6 +388,32 @@ test('replay CLI: a search that failed at capture and fails identically in repla
     const changed = spawnSync(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', fixturesDir], { cwd: os.tmpdir(), env, encoding: 'utf8' });
     assert.equal(changed.status, 1, changed.stdout + changed.stderr);
     assert.match(changed.stdout, /DIVERGED/);
+});
+
+test('replay CLI: a fixture captured before Phase 5 (no aggregation requests) still matches, using sample counts', async (t) => {
+    const fixturesDir = path.join(tmpDir, 'pre-phase5');
+    const { file } = await capture(t, fixturesDir);
+    const fixture = listFixtureCalls(file);
+    fixture.calls = fixture.calls.filter(c => !(c.kind === 'opensearch' && isAggregationRequest(c.request)));
+    fs.writeFileSync(file, JSON.stringify(fixture));
+    const outDir = path.join(tmpDir, 'pre-phase5-out');
+    const env = { PATH: process.env.PATH, JWT_SECRET: 'baseline-test-secret-0123456789abcdefghijkl', OPENSEARCH_URL: 'http://opensearch.test', WAZUH_SERVER_API_URL: 'http://wazuh.test' };
+    const run = spawnSync(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', fixturesDir, '--out', outDir], { cwd: os.tmpdir(), env, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /1\/1 matched the capture/);
+    const record = JSON.parse(fs.readFileSync(path.join(outDir, fixtureFileName(QUESTION)), 'utf8'));
+    assert.match(record.replay.report, /\*\*Counts\*\* come from the records retrieved/);
+
+    // A recorded aggregation request that today's code no longer builds is a divergence.
+    const withAggs = listFixtureCalls(path.join(path.join(tmpDir, 'pre-phase5'), fixtureFileName(QUESTION)));
+    const recaptured = await capture(t, path.join(tmpDir, 'agg-changed'));
+    const changed = listFixtureCalls(recaptured.file);
+    changed.calls.find(c => c.kind === 'opensearch' && isAggregationRequest(c.request)).request.aggs.current.aggs.by_rule.terms.size = 7;
+    fs.writeFileSync(recaptured.file, JSON.stringify(changed));
+    const diverged = spawnSync(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', path.join(tmpDir, 'agg-changed')], { cwd: os.tmpdir(), env, encoding: 'utf8' });
+    assert.equal(diverged.status, 1, diverged.stdout + diverged.stderr);
+    assert.match(diverged.stdout, /aggregation requests differ from capture/);
+    assert.ok(withAggs.calls.length > 0);
 });
 
 test('replay refuses a SYNTHETIC case placed among real fixtures (synthetic cases are for the checker only)', async (t) => {

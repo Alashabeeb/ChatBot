@@ -31,7 +31,8 @@
         }
       }
     ],
-    "replayedFrom": null
+    "replayedFrom": null,
+    "severityFloor": null
   },
   "calls": [
     {
@@ -633,6 +634,976 @@
         }
       },
       "durationMs": 0
+    },
+    {
+      "kind": "opensearch",
+      "method": "POST",
+      "path": "/wazuh-alerts-*/_search",
+      "request": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "must": [
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "match": {
+                        "rule.groups": "authentication_failed"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "authentication_failures"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "sshd"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "failed"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "failure"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            ],
+            "filter": [
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-24h"
+                        }
+                      }
+                    },
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-192h",
+                          "lte": "now-168h"
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            ],
+            "must_not": [
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "match": {
+                        "rule.groups": "firewall"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "firewall"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "firewall"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "firewall"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "iptables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "iptables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "iptables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "iptables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "nftables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "nftables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "nftables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "nftables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "netfilter"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "netfilter"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "netfilter"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "netfilter"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "ufw"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "ufw"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "ufw"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "ufw"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "pfsense"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "pfsense"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "pfsense"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "pfsense"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "fortigate"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "fortigate"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "fortigate"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "fortigate"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "pan-os"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "pan-os"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "pan-os"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "pan-os"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "palo alto"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "palo alto"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "palo alto"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "palo alto"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "cisco asa"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "cisco asa"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "cisco asa"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "cisco asa"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "current": {
+            "filter": {
+              "range": {
+                "@timestamp": {
+                  "gte": "now-24h"
+                }
+              }
+            },
+            "aggs": {
+              "by_rule": {
+                "terms": {
+                  "field": "rule.id",
+                  "size": 50,
+                  "show_term_doc_count_error": true
+                },
+                "aggs": {
+                  "description": {
+                    "terms": {
+                      "field": "rule.description",
+                      "size": 1
+                    }
+                  }
+                }
+              },
+              "by_agent": {
+                "terms": {
+                  "field": "agent.name",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_srcip": {
+                "terms": {
+                  "field": "data.srcip",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_win_ip": {
+                "terms": {
+                  "field": "data.win.eventdata.ipAddress",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_level": {
+                "terms": {
+                  "field": "rule.level",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_mitre": {
+                "terms": {
+                  "field": "rule.mitre.id",
+                  "size": 30,
+                  "show_term_doc_count_error": true
+                }
+              }
+            }
+          },
+          "previous": {
+            "filter": {
+              "range": {
+                "@timestamp": {
+                  "gte": "now-192h",
+                  "lte": "now-168h"
+                }
+              }
+            },
+            "aggs": {
+              "by_rule": {
+                "terms": {
+                  "field": "rule.id",
+                  "size": 50,
+                  "show_term_doc_count_error": true
+                },
+                "aggs": {
+                  "description": {
+                    "terms": {
+                      "field": "rule.description",
+                      "size": 1
+                    }
+                  }
+                }
+              },
+              "by_agent": {
+                "terms": {
+                  "field": "agent.name",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_srcip": {
+                "terms": {
+                  "field": "data.srcip",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_win_ip": {
+                "terms": {
+                  "field": "data.win.eventdata.ipAddress",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_level": {
+                "terms": {
+                  "field": "rule.level",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_mitre": {
+                "terms": {
+                  "field": "rule.mitre.id",
+                  "size": 30,
+                  "show_term_doc_count_error": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "startedAt": "2026-10-12T09:00:00.000Z",
+      "response": {
+        "status": 200,
+        "data": {
+          "hits": {
+            "total": {
+              "value": 0
+            },
+            "hits": []
+          },
+          "aggregations": {
+            "current": {
+              "doc_count": 0,
+              "by_rule": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_agent": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_srcip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_win_ip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_level": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_mitre": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              }
+            },
+            "previous": {
+              "doc_count": 0,
+              "by_rule": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_agent": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_srcip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_win_ip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_level": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_mitre": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              }
+            }
+          }
+        }
+      },
+      "durationMs": 0
+    },
+    {
+      "kind": "opensearch",
+      "method": "POST",
+      "path": "/wazuh-alerts-*/_search",
+      "request": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "must": [
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "match": {
+                        "rule.groups": "firewall"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "firewall"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "firewall"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "firewall"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "iptables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "iptables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "iptables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "iptables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "nftables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "nftables"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "nftables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "nftables"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "netfilter"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "netfilter"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "netfilter"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "netfilter"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "ufw"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "ufw"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "ufw"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "ufw"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "pfsense"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "pfsense"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "pfsense"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "pfsense"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "fortigate"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "fortigate"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "fortigate"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "fortigate"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "pan-os"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "pan-os"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "pan-os"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "pan-os"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "palo alto"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "palo alto"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "palo alto"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "palo alto"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "cisco asa"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "cisco asa"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "full_log": "cisco asa"
+                      }
+                    },
+                    {
+                      "match": {
+                        "decoder.name": "cisco asa"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              },
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "match": {
+                        "rule.groups": "authentication_failed"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "authentication_failures"
+                      }
+                    },
+                    {
+                      "match": {
+                        "rule.groups": "sshd"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "failed"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "rule.description": "failure"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            ],
+            "filter": [
+              {
+                "bool": {
+                  "should": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-24h"
+                        }
+                      }
+                    },
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-192h",
+                          "lte": "now-168h"
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "current": {
+            "filter": {
+              "range": {
+                "@timestamp": {
+                  "gte": "now-24h"
+                }
+              }
+            },
+            "aggs": {
+              "by_rule": {
+                "terms": {
+                  "field": "rule.id",
+                  "size": 50,
+                  "show_term_doc_count_error": true
+                },
+                "aggs": {
+                  "description": {
+                    "terms": {
+                      "field": "rule.description",
+                      "size": 1
+                    }
+                  }
+                }
+              },
+              "by_agent": {
+                "terms": {
+                  "field": "agent.name",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_srcip": {
+                "terms": {
+                  "field": "data.srcip",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_win_ip": {
+                "terms": {
+                  "field": "data.win.eventdata.ipAddress",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_level": {
+                "terms": {
+                  "field": "rule.level",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_mitre": {
+                "terms": {
+                  "field": "rule.mitre.id",
+                  "size": 30,
+                  "show_term_doc_count_error": true
+                }
+              }
+            }
+          },
+          "previous": {
+            "filter": {
+              "range": {
+                "@timestamp": {
+                  "gte": "now-192h",
+                  "lte": "now-168h"
+                }
+              }
+            },
+            "aggs": {
+              "by_rule": {
+                "terms": {
+                  "field": "rule.id",
+                  "size": 50,
+                  "show_term_doc_count_error": true
+                },
+                "aggs": {
+                  "description": {
+                    "terms": {
+                      "field": "rule.description",
+                      "size": 1
+                    }
+                  }
+                }
+              },
+              "by_agent": {
+                "terms": {
+                  "field": "agent.name",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_srcip": {
+                "terms": {
+                  "field": "data.srcip",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_win_ip": {
+                "terms": {
+                  "field": "data.win.eventdata.ipAddress",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_level": {
+                "terms": {
+                  "field": "rule.level",
+                  "size": 20,
+                  "show_term_doc_count_error": true
+                }
+              },
+              "by_mitre": {
+                "terms": {
+                  "field": "rule.mitre.id",
+                  "size": 30,
+                  "show_term_doc_count_error": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "startedAt": "2026-10-12T09:00:00.000Z",
+      "response": {
+        "status": 200,
+        "data": {
+          "hits": {
+            "total": {
+              "value": 0
+            },
+            "hits": []
+          },
+          "aggregations": {
+            "current": {
+              "doc_count": 0,
+              "by_rule": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_agent": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_srcip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_win_ip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_level": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_mitre": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              }
+            },
+            "previous": {
+              "doc_count": 0,
+              "by_rule": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_agent": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_srcip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_win_ip": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_level": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              },
+              "by_mitre": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": []
+              }
+            }
+          }
+        }
+      },
+      "durationMs": 0
     }
   ],
   "result": {
@@ -929,6 +1900,416 @@
           ],
           "size": 200,
           "track_total_hits": true
+        },
+        "aggregations": {
+          "available": true,
+          "error": null,
+          "currentTotal": 0,
+          "previousTotal": 0,
+          "previousWindow": {
+            "gte": "now-192h",
+            "lte": "now-168h"
+          },
+          "query": {
+            "size": 0,
+            "track_total_hits": true,
+            "query": {
+              "bool": {
+                "must": [
+                  {
+                    "bool": {
+                      "should": [
+                        {
+                          "match": {
+                            "rule.groups": "authentication_failed"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "authentication_failures"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "sshd"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "failed"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "failure"
+                          }
+                        }
+                      ],
+                      "minimum_should_match": 1
+                    }
+                  }
+                ],
+                "filter": [
+                  {
+                    "bool": {
+                      "should": [
+                        {
+                          "range": {
+                            "@timestamp": {
+                              "gte": "now-24h"
+                            }
+                          }
+                        },
+                        {
+                          "range": {
+                            "@timestamp": {
+                              "gte": "now-192h",
+                              "lte": "now-168h"
+                            }
+                          }
+                        }
+                      ],
+                      "minimum_should_match": 1
+                    }
+                  }
+                ],
+                "must_not": [
+                  {
+                    "bool": {
+                      "should": [
+                        {
+                          "match": {
+                            "rule.groups": "firewall"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "firewall"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "firewall"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "firewall"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "iptables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "iptables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "iptables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "iptables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "nftables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "nftables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "nftables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "nftables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "netfilter"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "netfilter"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "netfilter"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "netfilter"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "ufw"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "ufw"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "ufw"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "ufw"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "pfsense"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "pfsense"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "pfsense"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "pfsense"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "fortigate"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "fortigate"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "fortigate"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "fortigate"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "pan-os"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "pan-os"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "pan-os"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "pan-os"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "palo alto"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "palo alto"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "palo alto"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "palo alto"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "cisco asa"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "cisco asa"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "cisco asa"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "cisco asa"
+                          }
+                        }
+                      ],
+                      "minimum_should_match": 1
+                    }
+                  }
+                ]
+              }
+            },
+            "aggs": {
+              "current": {
+                "filter": {
+                  "range": {
+                    "@timestamp": {
+                      "gte": "now-24h"
+                    }
+                  }
+                },
+                "aggs": {
+                  "by_rule": {
+                    "terms": {
+                      "field": "rule.id",
+                      "size": 50,
+                      "show_term_doc_count_error": true
+                    },
+                    "aggs": {
+                      "description": {
+                        "terms": {
+                          "field": "rule.description",
+                          "size": 1
+                        }
+                      }
+                    }
+                  },
+                  "by_agent": {
+                    "terms": {
+                      "field": "agent.name",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_srcip": {
+                    "terms": {
+                      "field": "data.srcip",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_win_ip": {
+                    "terms": {
+                      "field": "data.win.eventdata.ipAddress",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_level": {
+                    "terms": {
+                      "field": "rule.level",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_mitre": {
+                    "terms": {
+                      "field": "rule.mitre.id",
+                      "size": 30,
+                      "show_term_doc_count_error": true
+                    }
+                  }
+                }
+              },
+              "previous": {
+                "filter": {
+                  "range": {
+                    "@timestamp": {
+                      "gte": "now-192h",
+                      "lte": "now-168h"
+                    }
+                  }
+                },
+                "aggs": {
+                  "by_rule": {
+                    "terms": {
+                      "field": "rule.id",
+                      "size": 50,
+                      "show_term_doc_count_error": true
+                    },
+                    "aggs": {
+                      "description": {
+                        "terms": {
+                          "field": "rule.description",
+                          "size": 1
+                        }
+                      }
+                    }
+                  },
+                  "by_agent": {
+                    "terms": {
+                      "field": "agent.name",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_srcip": {
+                    "terms": {
+                      "field": "data.srcip",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_win_ip": {
+                    "terms": {
+                      "field": "data.win.eventdata.ipAddress",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_level": {
+                    "terms": {
+                      "field": "rule.level",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_mitre": {
+                    "terms": {
+                      "field": "rule.mitre.id",
+                      "size": 30,
+                      "show_term_doc_count_error": true
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       },
       {
@@ -1211,6 +2592,414 @@
           ],
           "size": 200,
           "track_total_hits": true
+        },
+        "aggregations": {
+          "available": true,
+          "error": null,
+          "currentTotal": 0,
+          "previousTotal": 0,
+          "previousWindow": {
+            "gte": "now-192h",
+            "lte": "now-168h"
+          },
+          "query": {
+            "size": 0,
+            "track_total_hits": true,
+            "query": {
+              "bool": {
+                "must": [
+                  {
+                    "bool": {
+                      "should": [
+                        {
+                          "match": {
+                            "rule.groups": "firewall"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "firewall"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "firewall"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "firewall"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "iptables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "iptables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "iptables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "iptables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "nftables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "nftables"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "nftables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "nftables"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "netfilter"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "netfilter"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "netfilter"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "netfilter"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "ufw"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "ufw"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "ufw"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "ufw"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "pfsense"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "pfsense"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "pfsense"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "pfsense"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "fortigate"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "fortigate"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "fortigate"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "fortigate"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "pan-os"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "pan-os"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "pan-os"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "pan-os"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "palo alto"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "palo alto"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "palo alto"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "palo alto"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "cisco asa"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "cisco asa"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "full_log": "cisco asa"
+                          }
+                        },
+                        {
+                          "match": {
+                            "decoder.name": "cisco asa"
+                          }
+                        }
+                      ],
+                      "minimum_should_match": 1
+                    }
+                  },
+                  {
+                    "bool": {
+                      "should": [
+                        {
+                          "match": {
+                            "rule.groups": "authentication_failed"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "authentication_failures"
+                          }
+                        },
+                        {
+                          "match": {
+                            "rule.groups": "sshd"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "failed"
+                          }
+                        },
+                        {
+                          "match_phrase": {
+                            "rule.description": "failure"
+                          }
+                        }
+                      ],
+                      "minimum_should_match": 1
+                    }
+                  }
+                ],
+                "filter": [
+                  {
+                    "bool": {
+                      "should": [
+                        {
+                          "range": {
+                            "@timestamp": {
+                              "gte": "now-24h"
+                            }
+                          }
+                        },
+                        {
+                          "range": {
+                            "@timestamp": {
+                              "gte": "now-192h",
+                              "lte": "now-168h"
+                            }
+                          }
+                        }
+                      ],
+                      "minimum_should_match": 1
+                    }
+                  }
+                ]
+              }
+            },
+            "aggs": {
+              "current": {
+                "filter": {
+                  "range": {
+                    "@timestamp": {
+                      "gte": "now-24h"
+                    }
+                  }
+                },
+                "aggs": {
+                  "by_rule": {
+                    "terms": {
+                      "field": "rule.id",
+                      "size": 50,
+                      "show_term_doc_count_error": true
+                    },
+                    "aggs": {
+                      "description": {
+                        "terms": {
+                          "field": "rule.description",
+                          "size": 1
+                        }
+                      }
+                    }
+                  },
+                  "by_agent": {
+                    "terms": {
+                      "field": "agent.name",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_srcip": {
+                    "terms": {
+                      "field": "data.srcip",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_win_ip": {
+                    "terms": {
+                      "field": "data.win.eventdata.ipAddress",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_level": {
+                    "terms": {
+                      "field": "rule.level",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_mitre": {
+                    "terms": {
+                      "field": "rule.mitre.id",
+                      "size": 30,
+                      "show_term_doc_count_error": true
+                    }
+                  }
+                }
+              },
+              "previous": {
+                "filter": {
+                  "range": {
+                    "@timestamp": {
+                      "gte": "now-192h",
+                      "lte": "now-168h"
+                    }
+                  }
+                },
+                "aggs": {
+                  "by_rule": {
+                    "terms": {
+                      "field": "rule.id",
+                      "size": 50,
+                      "show_term_doc_count_error": true
+                    },
+                    "aggs": {
+                      "description": {
+                        "terms": {
+                          "field": "rule.description",
+                          "size": 1
+                        }
+                      }
+                    }
+                  },
+                  "by_agent": {
+                    "terms": {
+                      "field": "agent.name",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_srcip": {
+                    "terms": {
+                      "field": "data.srcip",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_win_ip": {
+                    "terms": {
+                      "field": "data.win.eventdata.ipAddress",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_level": {
+                    "terms": {
+                      "field": "rule.level",
+                      "size": 20,
+                      "show_term_doc_count_error": true
+                    }
+                  },
+                  "by_mitre": {
+                    "terms": {
+                      "field": "rule.mitre.id",
+                      "size": 30,
+                      "show_term_doc_count_error": true
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     ],

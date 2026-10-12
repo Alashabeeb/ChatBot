@@ -63,6 +63,10 @@ def get(obj, *path, default=None):
     return obj
 
 
+def is_aggregation_request(request):
+    return isinstance(request, dict) and request.get('size') == 0 and bool(request.get('aggs'))
+
+
 def is_firewall_query(request):
     return '"iptables"' in json.dumps(get(request, 'query', 'bool', 'must', default=[]))
 
@@ -106,10 +110,17 @@ class Evidence:
         self.unavailable = []
         self.searched_ok = set()
 
+        aggregations = {'Wazuh alerts': [], 'firewall': []}
         for call in case.get('calls') or []:
             kind = call.get('kind')
+            request = call.get('request') or {}
+            if kind == 'opensearch' and is_aggregation_request(request):
+                # Phase 5: exact counts over every match, sent beside each search. Not a search itself.
+                label = 'firewall' if is_firewall_query(request) else 'Wazuh alerts'
+                current = get(call, 'response', 'data', 'aggregations', 'current') if not call.get('error') else None
+                aggregations[label].append(current)
+                continue
             if kind == 'opensearch':
-                request = call.get('request') or {}
                 label = 'firewall' if is_firewall_query(request) else 'Wazuh alerts'
                 search = {'label': label, 'range': time_range_of(request), 'failed': bool(call.get('error')),
                           'total': 0, 'hits': []}
@@ -138,31 +149,63 @@ class Evidence:
                     self.unavailable.append({'source': source, 'why': tool.get('reason') or tool.get('error') or 'no data'})
                 self.searched_ok.discard(source)
 
+        # Pair each successful search with its aggregation (same scope, in order).
+        queues = {k: list(v) for k, v in aggregations.items()}
+        for s in self.searches:
+            s['aggs'] = None
+            if not s['failed'] and queues[s['label']]:
+                s['aggs'] = queues[s['label']].pop(0)
+
         self.hits = [h for s in self.searches for h in s['hits']]
         self.total_hits = sum(s['total'] for s in self.searches if not s['failed'])
-        self.sampled = any(s['total'] > len(s['hits']) for s in self.searches if not s['failed'])
+        self.sampled = any(s['total'] > len(s['hits']) and not s['aggs'] for s in self.searches if not s['failed'])
 
-        self.rule_counts = Counter(str(get(h, 'rule', 'id')) for h in self.hits if get(h, 'rule', 'id') is not None)
-        self.rule_bounds = {}
-        for rule in self.rule_counts:
-            low, high = 0, 0
-            for s in self.searches:
-                n = sum(1 for h in s['hits'] if str(get(h, 'rule', 'id')) == rule)
-                if n:
-                    low += n
-                    high += s['total'] - len(s['hits']) + n
-            self.rule_bounds[rule] = (low, high)
-        self.mitre = {m for h in self.hits for m in as_list(get(h, 'rule', 'mitre', 'id'))}
-        self.agent_counts = Counter(get(h, 'agent', 'name') for h in self.hits if get(h, 'agent', 'name'))
-        self.ip_counts = Counter()
-        for h in self.hits:
+        def first_ip(h):
             for path in SRC_IP_FIELDS:
                 ip = get(h, *path)
                 if isinstance(ip, str) and IPV4.fullmatch(ip):
-                    self.ip_counts[ip] += 1
-                    break
+                    return ip
+            return None
 
-        self.text = '\n'.join(strings_in([self.hits, self.agents])).lower()
+        def bounds(pick, agg_names):
+            # Exact from a search's aggregation where it has one, otherwise bounded by the records returned.
+            out = {}
+            for s in self.searches:
+                if s['failed']:
+                    continue
+                sample = Counter(k for k in (pick(h) for h in s['hits']) if k is not None)
+                buckets, other = {}, 0
+                if s['aggs']:
+                    for name in agg_names:
+                        agg = s['aggs'].get(name) or {}
+                        other += agg.get('sum_other_doc_count', 0)
+                        for b in agg.get('buckets', []):
+                            lo, hi = buckets.get(str(b['key']), (0, 0))
+                            buckets[str(b['key'])] = (lo + b['doc_count'], hi + b['doc_count'] + b.get('doc_count_error_upper_bound', 0))
+                    for key, n in sample.items():
+                        if key not in buckets:
+                            buckets[key] = (n, max(other, n))
+                else:
+                    missing = max(s['total'] - len(s['hits']), 0)
+                    buckets = {k: (n, n + missing) for k, n in sample.items()}
+                for key, (lo, hi) in buckets.items():
+                    a, b = out.get(key, (0, 0))
+                    out[key] = (a + lo, b + hi)
+            return out
+
+        self.rule_bounds = bounds(lambda h: str(get(h, 'rule', 'id')) if get(h, 'rule', 'id') is not None else None, ['by_rule'])
+        self.rule_counts = Counter({k: lo for k, (lo, _) in self.rule_bounds.items()})
+        agent_bounds = bounds(lambda h: get(h, 'agent', 'name'), ['by_agent'])
+        self.agent_counts = Counter({k: lo for k, (lo, _) in agent_bounds.items()})
+        ip_bounds = bounds(first_ip, ['by_srcip', 'by_win_ip'])
+        self.ip_counts = Counter({k: lo for k, (lo, _) in ip_bounds.items()})
+        agg_windows = [s['aggs'] for s in self.searches if s.get('aggs')]
+        agg_keys = lambda name: [str(b['key']) for w in agg_windows for b in (w.get(name) or {}).get('buckets', [])]
+        self.mitre = {m for h in self.hits for m in as_list(get(h, 'rule', 'mitre', 'id'))} | set(agg_keys('by_mitre'))
+        agg_descriptions = [str(d['key']) for w in agg_windows for b in (w.get('by_rule') or {}).get('buckets', []) for d in (b.get('description') or {}).get('buckets', [])]
+
+        aggregated = [agg_keys(n) for n in ('by_rule', 'by_agent', 'by_srcip', 'by_win_ip', 'by_mitre')] + [agg_descriptions]
+        self.text = '\n'.join(strings_in([self.hits, self.agents, aggregated])).lower()
         users = {str(get(h, *p)) for h in self.hits for p in USER_FIELDS if get(h, *p)}
         names = {str(get(h, 'agent', 'name')) for h in self.hits if get(h, 'agent', 'name')}
         names |= {str(a.get('name')) for a in self.agents if a.get('name')}

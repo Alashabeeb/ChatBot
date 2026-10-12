@@ -27,7 +27,7 @@ delete process.env.FIXTURES;
 
 const { default: axios } = await import('axios');
 const { BACKEND_DIR, fixtureFileName } = await import('../src/recording/common.js');
-const { SCENARIOS, stubHttp, normalize } = await import('./lib/evalScenarios.js');
+const { SCENARIOS, stubHttp, normalize, withoutAggregations } = await import('./lib/evalScenarios.js');
 const outFlag = process.argv.indexOf('--out');
 const OUT_DIR = outFlag > -1 && process.argv[outFlag + 1] ? path.resolve(process.argv[outFlag + 1]) : path.resolve(BACKEND_DIR, '..', 'evals', 'synthetic');
 
@@ -187,8 +187,29 @@ All 5 alerts are on DC01, from 10.20.0.77 against svc_backup (T1110).`,
         }
     },
     'right-now-sampled': {
+        'exact-count-ok': {
+            answer: `In the past hour 1,500 alerts at level 7 or above matched in Wazuh alerts; firewall events returned none.
+
+| Rule ID | Description | Count |
+|---|---|---|
+| 5710 | sshd: attempt to login using a non-existent user | 1200 |
+| 550 | Integrity checksum changed | 300 |
+
+Most activity is on web-01 from 45.155.205.233 (T1110.001).`,
+            expect: { hard_fail: [], score_min: 95 }
+        },
+        'exact-count-wrong': {
+            answer: `In the past hour 1,500 alerts matched in Wazuh alerts.
+
+| Rule ID | Description | Count |
+|---|---|---|
+| 5710 | sshd: attempt to login using a non-existent user | 1250 |`,
+            expect: { hard_fail: ['H3_rule_counts_match'] }
+        }
+    },
+    'right-now-sampled-pre-phase5': {
         'bounded-count-ok': {
-            answer: `In the past hour 1,500 alerts at level 7 or above matched in Wazuh alerts; firewall events returned none. The 5 most recent are a sample:
+            answer: `In the past hour 1,500 alerts at level 7 or above matched in Wazuh alerts; firewall events returned none. Counts below are from the 200 most recent:
 
 | Rule ID | Description | Count |
 |---|---|---|
@@ -236,7 +257,8 @@ try {
         await captureFixtures({ questions: [scenario.question], outDir: tmp, timeoutMs: 10000, log: () => {} });
         await new Promise(resolve => setTimeout(resolve, 50));
         Object.assign(console, quiet);
-        const fixture = normalize(JSON.parse(fs.readFileSync(path.join(tmp, fixtureFileName(scenario.question)), 'utf8')));
+        let fixture = normalize(JSON.parse(fs.readFileSync(path.join(tmp, fixtureFileName(scenario.question)), 'utf8')));
+        if (scenario.preAggregation) fixture = withoutAggregations(fixture);
         if (fixture.status !== 'completed') throw new Error(`${name}: capture status ${fixture.status}`);
         for (const [variant, { answer, expect }] of Object.entries(ANSWERS[name])) {
             const file = path.join(OUT_DIR, `SYNTHETIC-${name}--${variant}.json`);

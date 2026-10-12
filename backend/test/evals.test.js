@@ -54,7 +54,7 @@ test('grounded pipeline: no fabricated claim from the model reaches the analyst 
         const results = JSON.parse(fs.readFileSync(path.join(out, 'scores.json'), 'utf8')).results;
         const byMode = mode => results.filter(r => r.file.startsWith(`SYNTHETIC-pipeline-${mode}--`));
         for (const mode of ['faithful', 'adversarial']) {
-            assert.equal(byMode(mode).length, 4);
+            assert.equal(byMode(mode).length, 5);
             for (const r of byMode(mode)) {
                 assert.equal(r.fabrications, 0, `${r.file}: ${JSON.stringify(r.failed_checks)}`);
                 assert.equal(r.pass, true, `${r.file}: ${JSON.stringify(r.failed_checks)}`);

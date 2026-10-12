@@ -84,6 +84,7 @@ Each item is one short statement. EVERY statement needs at least one citation. A
 - {"kind": "user", "ref": "<user>"}
 - {"kind": "mitre", "ref": "<technique ID from mitreTechniques>"}
 - {"kind": "cve", "ref": "<CVE ID>"}
+- {"kind": "previous", "ref": "<searches[].key or ruleId>", "count": <from comparison: previousTotals or byRule[].previous>}
 - {"kind": "memory", "ref": "<pastInvestigations[].ref>"}
 - {"kind": "field", "ref": "<path in the evidence JSON, e.g. agents[0].status>"}
 
@@ -96,6 +97,7 @@ RULES:
 6. Do not give confidence or risk ratings, numeric scores or percentages. Do not claim any action was taken.
 7. Do not repeat the time window or the list of sources; the system states them.
 8. If the evidence does not answer the question, set "insufficient_evidence": true and leave the lists empty.
+9. counts are over every match when countsExact is true. Use "comparison" (the same window one week earlier) to say what is new or unusual: cite the current count with "rule" and last week's with "previous". Rules in newThisWindow did not occur a week earlier.
 
 EXAMPLE (for evidence where searches[0] has key "searchSecurityLogs", totalMatches 12, and counts.byRule has rule 5710 with count 9 on agent web-01 from 203.0.113.9, mitreTechniques ["T1110.001"]):
 {"insufficient_evidence": false,

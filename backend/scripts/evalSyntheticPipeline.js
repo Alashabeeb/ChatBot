@@ -63,6 +63,13 @@ function faithfulClaims(evidence) {
         const { n, words } = exact(ip.count);
         claims.findings.push({ text: `The most frequent source IP was ${ip.ip} (${words}).`, cite: [cite('ip', ip.ip, n)] });
     }
+    const change = evidence.comparison?.byRule?.find(r => typeof r.current === 'number' && typeof r.previous === 'number' && r.current !== r.previous);
+    if (change) {
+        claims.findings.push({
+            text: `Rule ${change.ruleId}: ${change.current} this window against ${change.previous} in ${evidence.comparison.previousWindow}.`,
+            cite: [cite('rule', change.ruleId, change.current), cite('previous', change.ruleId, change.previous)]
+        });
+    }
     if (evidence.mitreTechniques.length) {
         claims.assessment.push({ text: `The rules involved map to ${evidence.mitreTechniques.join(', ')}.`, cite: evidence.mitreTechniques.map(t => cite('mitre', t)) });
     }
@@ -158,15 +165,20 @@ const results = JSON.parse(fs.readFileSync(jsonPath, 'utf8')).results;
 const summary = {};
 for (const r of results) {
     const mode = r.file.match(/^SYNTHETIC-pipeline-(\w+)--/)[1];
-    summary[mode] ??= { cases: 0, score: 0, failing: 0, fabrications: 0 };
+    summary[mode] ??= { cases: 0, score: 0, failing: 0, fabrications: 0, promptChars: [] };
     summary[mode].cases++;
+    // Size of what the report model is sent (system + user prompt): model latency grows with it.
+    const fixture = JSON.parse(fs.readFileSync(path.join(OUT_DIR, r.file), 'utf8'));
+    const reportCall = fixture.calls.find(c => c.kind === 'llm' && /Reasoning Engine/.test(c.request?.messages?.[0]?.content ?? ''));
+    if (reportCall) summary[mode].promptChars.push(reportCall.request.messages.reduce((n, m) => n + String(m.content).length, 0));
     summary[mode].score += r.score;
     summary[mode].failing += r.pass ? 0 : 1;
     summary[mode].fabrications += r.fabrications;
 }
-console.log('\nmode         cases  mean score  failing a hard check  fabrications');
+console.log('\nmode         cases  mean score  failing a hard check  fabrications  mean report prompt (chars)');
 for (const [mode, s] of Object.entries(summary)) {
-    console.log(`${mode.padEnd(12)} ${String(s.cases).padStart(5)}  ${(s.score / s.cases).toFixed(1).padStart(10)}  ${String(s.failing).padStart(20)}  ${String(s.fabrications).padStart(12)}`);
+    const prompt = s.promptChars.length ? Math.round(s.promptChars.reduce((a, b) => a + b, 0) / s.promptChars.length) : '-';
+    console.log(`${mode.padEnd(12)} ${String(s.cases).padStart(5)}  ${(s.score / s.cases).toFixed(1).padStart(10)}  ${String(s.failing).padStart(20)}  ${String(s.fabrications).padStart(12)}  ${String(prompt).padStart(26)}`);
 }
 console.log(`\nCases and scores: ${OUT_DIR}`);
 const bad = ['faithful', 'adversarial'].some(m => summary[m] && (summary[m].failing > 0 || summary[m].fabrications > 0));

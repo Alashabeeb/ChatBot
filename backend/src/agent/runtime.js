@@ -6,6 +6,7 @@ import { askFoundation, MODEL_NAME } from '../llm/foundation.js';
 import { LLM_REPORT_TIMEOUT_MS } from '../config/env.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
 import { buildEvidenceIndex, evidenceForModel } from './evidenceIndex.js';
+import { applySeverityFloor, rightNowMinSeverity } from './severityFloor.js';
 import {
     parseClaims, verifyClaims, renderGroundedReport, renderInsufficient, renderNoResults, renderSearchFailed, renderEvidenceSummary, renderHeader
 } from './grounding.js';
@@ -102,7 +103,18 @@ function toolRunMetadata(result) {
     const data = result.data || {};
     switch (result.tool) {
         case 'searchSecurityLogs':
-            return { ...meta, totalHits: data.totalHits ?? null, returnedCount: data.rawData?.length ?? 0, targetIndex: data.targetIndex ?? null, query: data.query ?? null };
+            return {
+                ...meta, totalHits: data.totalHits ?? null, returnedCount: data.rawData?.length ?? 0, targetIndex: data.targetIndex ?? null, query: data.query ?? null,
+                // Counts only: whether exact counts were available, and the window totals.
+                aggregations: data.aggregations ? {
+                    available: data.aggregations.available,
+                    error: data.aggregations.error ?? null,
+                    currentTotal: data.aggregations.current?.total ?? null,
+                    previousTotal: data.aggregations.previous?.total ?? null,
+                    previousWindow: data.aggregations.previousWindow ?? null,
+                    query: data.aggregationQuery ?? null
+                } : null
+            };
         case 'getEndpointStatus':
             return { ...meta, total: data.total ?? null, returnedCount: data.data?.length ?? 0, url: data.url ?? null, query: data.query ?? null };
         case 'lookupThreatIntel':
@@ -159,12 +171,19 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1')
             userId,
             question: text,
             startMs: Date.now(),
+            // Per-stage timings in ms (Phase 5). null means the stage was not reached (or, for
+            // reasoningDuration, that the model was not asked). reasoningDuration is the model call alone;
+            // verificationDuration is everything else in the report stage (evidence index, claim checks, rendering).
             telemetry: {
-                planningDuration: 0,
-                executionDuration: 0,
-                aggregationDuration: 0,
-                reasoningDuration: 0,
-                totalDuration: 0
+                memoryRetrievalDuration: null,
+                planningDuration: null,
+                executionDuration: null,
+                aggregationDuration: null,
+                reasoningDuration: null,
+                verificationDuration: null,
+                totalDuration: null,
+                reportPromptChars: null,
+                tools: []
             },
             context: null,
             planner: null,
@@ -200,7 +219,9 @@ async function runPipeline(run, text, history) {
     // ==========================================
     // 0. Context Enrichment (Memory)
     // ==========================================
+    const memoryStart = Date.now();
     const preMemories = await memoryManager.retrieve(userId, text);
+    telemetry.memoryRetrievalDuration = Date.now() - memoryStart;
     const storedContext = {
         recent: preMemories.shortTerm.slice(0, 2).map(m => m.content),
         preferences: preMemories.longTerm.filter(m => m.category === 'preference').map(m => m.content)
@@ -238,11 +259,16 @@ async function runPipeline(run, text, history) {
         };
     }
 
+    // "Right now" questions search only what matters, unless the analyst asked for a level (Phase 5).
+    const floorLevel = rightNowMinSeverity();
+    const flooredPlan = applySeverityFloor(plan, text, floorLevel);
+    run.planner.severityFloor = flooredPlan.some((instruction, i) => instruction !== plan[i]) ? { level: floorLevel, applied: true } : null;
+
     // Every security log search includes Wazuh and Firewall evidence. Their
     // scopes are mutually exclusive, so records are never counted twice.
     const logScopes = ['non_firewall', 'firewall'];
     // Vulnerability searches are not split: firewall records never carry CVE data.
-    const executionPlan = plan.flatMap(instruction => {
+    const executionPlan = flooredPlan.flatMap(instruction => {
         if (instruction.tool !== 'searchSecurityLogs') return instruction;
         if (instruction.parameters?.intent === 'vulnerabilities') return instruction;
         return logScopes.map(sourceScope => ({
@@ -257,6 +283,9 @@ async function runPipeline(run, text, history) {
     const execStart = Date.now();
     await executePlan(executionPlan, context);
     telemetry.executionDuration = Date.now() - execStart;
+    telemetry.tools = [...context.getEvidence()]
+        .sort((a, b) => (a.planIndex ?? 0) - (b.planIndex ?? 0))
+        .map(r => ({ tool: r.tool, scope: r.parameters?.sourceScope ?? null, durationMs: r.executionTime ?? null, success: r.success }));
 
     // ==========================================
     // 3. Evidence Aggregation Phase
@@ -386,7 +415,10 @@ async function runPipeline(run, text, history) {
     } else {
         const modelEvidence = evidenceForModel(index);
         const reasoningPrompt = `User Request: "${text}"\n\nEvidence JSON:\n${JSON.stringify(modelEvidence, null, 2)}`;
+        telemetry.reportPromptChars = reasoningPrompt.length + SYSTEM_PROMPTS.AGENT_REASONING_PROMPT.length;
+        const modelStart = Date.now();
         const rawReport = await askFoundation(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, context.conversationHistory, { timeout: LLM_REPORT_TIMEOUT_MS });
+        telemetry.reasoningDuration = Date.now() - modelStart;
 
         if (!rawReport) {
             finalSummary = [MODEL_UNAVAILABLE_NOTICE, renderHeader(index), renderEvidenceSummary(index)].filter(Boolean).join('\n\n');
@@ -421,7 +453,7 @@ async function runPipeline(run, text, history) {
     for (const tool of absentTools) {
         finalSummary += `\n\n${ABSENT_NOTES[tool] ?? `**${tool}**: Not available.`}`;
     }
-    telemetry.reasoningDuration = Date.now() - reasonStart;
+    telemetry.verificationDuration = Date.now() - reasonStart - (telemetry.reasoningDuration ?? 0);
 
     // ==========================================
     // 5. Memory Write (Automatic Runtime Policy)
@@ -456,7 +488,7 @@ async function runPipeline(run, text, history) {
     run.generation = { planner: plannerSource, report: reportSource, model: MODEL_NAME };
 
     runLog.info(`[Runtime Complete] RequestID: ${context.requestId} | planner=${plannerSource} report=${reportSource} model_generated=${modelGenerated}`);
-    runLog.info(`[Telemetry] Plan: ${telemetry.planningDuration}ms | Exec: ${telemetry.executionDuration}ms | Agg: ${telemetry.aggregationDuration}ms | Reason: ${telemetry.reasoningDuration}ms | Total: ${telemetry.totalDuration}ms`);
+    runLog.info(`[Telemetry] Memory: ${telemetry.memoryRetrievalDuration}ms | Plan: ${telemetry.planningDuration}ms | Exec: ${telemetry.executionDuration}ms | Agg: ${telemetry.aggregationDuration}ms | Model: ${telemetry.reasoningDuration ?? '-'}ms | Verify: ${telemetry.verificationDuration}ms | Total: ${telemetry.totalDuration}ms | Prompt: ${telemetry.reportPromptChars ?? '-'} chars`);
 
     return {
         type: 'agent_response',

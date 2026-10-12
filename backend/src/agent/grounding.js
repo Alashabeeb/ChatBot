@@ -106,6 +106,17 @@ function citationProblem(cite, index, modelEvidence) {
             if (hasCount && count !== index.totals.get(String(ref))) return `${ref}: cited total ${count}, evidence ${index.totals.get(String(ref))}`;
             return null;
         }
+        case 'previous': {
+            // The same window one week earlier: a search key for its total, or a rule ID for that rule's count.
+            if (!index.comparison) return 'no week-earlier comparison is available';
+            if (index.comparison.previousTotals.has(String(ref))) {
+                const total = index.comparison.previousTotals.get(String(ref));
+                return hasCount && count !== total ? `${ref} a week earlier: cited ${count}, evidence ${total}` : null;
+            }
+            const entry = index.comparison.byRule.get(String(ref));
+            if (!entry) return `rule ${ref} has no week-earlier count`;
+            return checkCount(entry.previous, `rule ${ref} a week earlier`);
+        }
         case 'memory':
             if (!index.memories.some(m => m.ref === String(ref))) return `${ref} is not a past investigation in the evidence`;
             return hasCount ? 'counts cannot be cited from a past investigation' : null;
@@ -201,6 +212,12 @@ export function renderHeader(index) {
     if (index.totals.has('getEndpointStatus')) parts.push(`Wazuh agent status (${plural(index.totals.get('getEndpointStatus'), 'agent')})`);
     if (index.memories.length) parts.push(`past investigations (${plural(index.memories.length, 'match', 'matches')})`);
     lines.push(parts.length ? `**Searched:** ${parts.join('; ')}.` : '**Searched:** no data source returned results for this question.');
+    if (index.comparison) {
+        const { total, window } = index.comparison;
+        lines.push(`**Compared with** ${window}: ${plural(total.current, 'match', 'matches')}, against ${total.previous.toLocaleString('en-US')}.`);
+    } else if (!index.countsExact && index.totalMatches > 0) {
+        lines.push('**Counts** come from the records retrieved (the most recent, up to 200 per search), not from every match, and there is no week-earlier comparison.');
+    }
     const failed = index.unavailable.filter(u => !['threat intelligence', 'process inspection'].includes(u.source));
     if (failed.length) lines.push(`**Not available:** ${failed.map(u => `${u.source}: ${u.reason}`).join('; ')}. Anything that source would have shown is missing from this answer.`);
     return lines.join('\n');
@@ -212,7 +229,7 @@ export function renderEvidenceSummary(index) {
     const fmt = (bounds) => (bounds.min === bounds.max ? String(bounds.min) : `at least ${bounds.min}`);
     const rules = topCounts(index.rules, 5);
     if (rules.length) {
-        const sampled = index.searches.some(s => !s.failed && !s.complete);
+        const sampled = !index.countsExact && index.searches.some(s => !s.failed && !s.complete);
         lines.push(`**Most frequent rules${sampled ? ' in the most recent records retrieved' : ''}:** ${rules.map(([id, b]) => `rule ${id}${index.ruleDescriptions.get(id) ? ` (${index.ruleDescriptions.get(id)})` : ''}: ${fmt(b)}`).join('; ')}.`);
     }
     const agents = topCounts(index.agentCounts, 3);

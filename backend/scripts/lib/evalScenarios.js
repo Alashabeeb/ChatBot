@@ -1,3 +1,4 @@
+import { isAggregationRequest, fakeAggregationResponse } from './fakeAggregations.js';
 /**
  * Invented scenarios for evals: the telemetry behind the SYNTHETIC cases (makeSyntheticEvalCases.js)
  * and the grounded-pipeline evaluation (evalSyntheticPipeline.js). Nothing here is real data.
@@ -66,15 +67,26 @@ export const SCENARIOS = {
     'right-now-sampled': {
         question: 'what is going on right now',
         plan: [{ tool: 'searchSecurityLogs', parameters: { timeRange: 'now-1h', intent: 'alerts', extractedIPs: [], minSeverity: 7, cleanedSearchText: '' } }],
+        // A full page: the search returns its 200 most recent records out of 1,500 matches.
         logs: [
-            ...times(3, () => hit('5710', 'sshd: attempt to login using a non-existent user', 8, ['T1110.001'], AG.web01, { data: { srcip: '45.155.205.233' } })),
-            ...times(2, () => hit('550', 'Integrity checksum changed', 7, ['T1565.001'], AG.web01))
+            ...times(160, () => hit('5710', 'sshd: attempt to login using a non-existent user', 8, ['T1110.001'], AG.web01, { data: { srcip: '45.155.205.233' } })),
+            ...times(40, () => hit('550', 'Integrity checksum changed', 7, ['T1565.001'], AG.web01))
         ],
         logsTotal: 1500,
+        // What the aggregation request sees: every one of the 1,500 matches.
+        aggLogs: [
+            ...times(1200, () => hit('5710', 'sshd: attempt to login using a non-existent user', 8, ['T1110.001'], AG.web01, { data: { srcip: '45.155.205.233' } })),
+            ...times(300, () => hit('550', 'Integrity checksum changed', 7, ['T1565.001'], AG.web01))
+        ],
+        previousLogs: times(40, () => hit('5710', 'sshd: attempt to login using a non-existent user', 8, ['T1110.001'], AG.web01, { data: { srcip: '45.155.205.233' } })),
         firewallLogs: [],
         agents: []
     }
 };
+// The same scenario as captured before Phase 5: no aggregation requests, so counts are only bounded.
+SCENARIOS['right-now-sampled-pre-phase5'] = { ...SCENARIOS['right-now-sampled'], preAggregation: true };
+// Last week, rule 60122 barely fired: this week's 6 is a measurable change.
+SCENARIOS['top-alerts-week'].previousLogs = [hit('60122', 'Windows logon failure', 5, ['T1110'], AG.dc01, { data: { win: { eventdata: { ipAddress: '185.220.101.7', targetUserName: 'jdoe' } } } })];
 
 export function stubHttp(axios, scenario, { report }) {
     const isFirewall = body => JSON.stringify(body?.query?.bool?.must ?? []).includes('"iptables"');
@@ -88,6 +100,12 @@ export function stubHttp(axios, scenario, { report }) {
             if (system.includes('Memory Engine')) return reply('{"summary":"synthetic","keyEntities":[]}');
             return reply(typeof report === 'function' ? report(body) : report);
         }
+        if (isAggregationRequest(body)) {
+            // Before Phase 5 there was no aggregation request; in the pipeline that is the same as it failing.
+            if (scenario.preAggregation) throw new Error('synthetic: no aggregation recorded (pre-Phase 5)');
+            const current = isFirewall(body) ? scenario.firewallLogs : (scenario.aggLogs ?? scenario.logs);
+            return fakeAggregationResponse(body, { current: current ?? [], previous: isFirewall(body) ? [] : (scenario.previousLogs ?? []) });
+        }
         if (isFirewall(body) && scenario.firewallError) {
             const error = new Error('Request failed with status code 503');
             error.response = { status: 503, data: { error: 'synthetic: firewall index unavailable' } };
@@ -97,6 +115,12 @@ export function stubHttp(axios, scenario, { report }) {
         const total = isFirewall(body) ? hits.length : (scenario.logsTotal ?? hits.length);
         return { status: 200, data: { hits: { total: { value: total }, hits: hits.map(h => ({ _source: h })) } } };
     };
+}
+
+/** Removes the aggregation requests from a capture, to reproduce a fixture recorded before Phase 5. */
+export function withoutAggregations(fixture) {
+    fixture.calls = fixture.calls.filter(c => !(c.kind === 'opensearch' && isAggregationRequest(c.request)));
+    return fixture;
 }
 
 export function normalize(fixture) {

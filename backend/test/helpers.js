@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isAggregationRequest, fakeAggregationResponse } from '../scripts/lib/fakeAggregations.js';
 
 export const USER_ID = 'user_admin_root';
 
@@ -39,14 +40,20 @@ export function askFoundationArgs(messages) {
  *   runs twice (firewall / non_firewall scope); the two queries are mutually exclusive, so the
  *   stub never returns the same records to both.
  * - agents: Wazuh GET /agents affected_items.
- * Returns { llmCalls, searchCalls, wazuhCalls }: messages arrays sent to the model, { url, body } sent to
- * OpenSearch, and { url, params } sent to the Wazuh API.
+ * - aggregations (Phase 5): each search also sends one aggregation request (size 0). By default it is
+ *   answered from the same records as the search (`current`) and `previousLogs` (the same window a
+ *   week earlier, default none). `aggLogs` overrides the current records, e.g. to model 1,500 matches
+ *   behind a 200-record sample; it may be a function (body) => records. `aggregations: 'fail'` makes
+ *   the aggregation request fail.
+ * Returns { llmCalls, searchCalls, aggCalls, wazuhCalls }: messages arrays sent to the model, { url, body }
+ * sent to OpenSearch (searches and aggregation requests separately), and { url, params } sent to Wazuh.
  */
 export const isFirewallScopeQuery = body => JSON.stringify(body?.query?.bool?.must ?? []).includes('"iptables"');
 
-export function stubBackends(t, { llm = {}, logs = [], firewallLogs = [], agents = [] } = {}) {
+export function stubBackends(t, { llm = {}, logs = [], firewallLogs = [], agents = [], previousLogs = [], aggLogs = null, aggregations = 'ok' } = {}) {
     const llmCalls = [];
     const searchCalls = [];
+    const aggCalls = [];
     const wazuhCalls = [];
     t.mock.method(axios, 'get', async (url, config = {}) => {
         wazuhCalls.push({ url, params: structuredClone(config.params) });
@@ -73,13 +80,21 @@ export function stubBackends(t, { llm = {}, logs = [], firewallLogs = [], agents
             }
             return llmReply(llm.report ?? `Echoed prompt:\n${body.messages.at(-1).content}`);
         }
+        const pick = (source, b) => (typeof source === 'function' ? source(url, b) : source);
+        if (isAggregationRequest(body)) {
+            aggCalls.push({ url, body: structuredClone(body) });
+            if (aggregations === 'fail') throw Object.assign(new Error('Request failed with status code 500'), { response: { status: 500, data: {} } });
+            const firewall = isFirewallScopeQuery(body);
+            const current = aggLogs ? pick(aggLogs, body) : pick(firewall ? firewallLogs : logs, body);
+            return fakeAggregationResponse(body, { current, previous: firewall ? [] : pick(previousLogs, body) });
+        }
         // Deep copy: the recorded body must be what was sent, not an object mutated later.
         searchCalls.push({ url, body: structuredClone(body) });
         const scoped = isFirewallScopeQuery(body) ? firewallLogs : logs;
         const hits = typeof scoped === 'function' ? scoped(url, body) : scoped;
         return { status: 200, data: { hits: { total: { value: hits.length }, hits: hits.map(l => ({ _source: l })) } } };
     });
-    return { llmCalls, searchCalls, wazuhCalls };
+    return { llmCalls, searchCalls, aggCalls, wazuhCalls };
 }
 
 export const SAMPLE_LOG = {

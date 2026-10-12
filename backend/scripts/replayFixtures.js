@@ -77,7 +77,9 @@ async function main() {
                 // A search that failed at capture is replayed as the same failure, and only when the
                 // rebuilt query matches the recording exactly (anything else is a fixture miss, above).
                 // So successful searches are compared query by query, and failed ones by count.
-                const searches = fixture.calls.filter(c => c.kind === 'opensearch');
+                // Aggregation requests (Phase 5) are compared separately; fixtures captured before Phase 5 have none.
+                const isAggregation = c => c.request?.size === 0 && Boolean(c.request?.aggs);
+                const searches = fixture.calls.filter(c => c.kind === 'opensearch' && !isAggregation(c));
                 const recorded = searches.filter(c => !c.error).map(c => canonicalJson(c.request)).sort();
                 const recordedFailures = searches.filter(c => c.error).length;
                 const searchTools = (run.tools || []).filter(t => t.tool === 'searchSecurityLogs');
@@ -88,6 +90,13 @@ async function main() {
                 }
                 if (recordedFailures !== replayedFailures) {
                     problems.push(`failed OpenSearch calls differ from capture (recorded ${recordedFailures}, replayed ${replayedFailures})`);
+                }
+                // An aggregation request is replayed only when it matches the recording exactly; otherwise the
+                // search falls back to sample counts. So the ones answered must be exactly the ones recorded.
+                const recordedAggs = fixture.calls.filter(c => c.kind === 'opensearch' && isAggregation(c) && !c.error).map(c => canonicalJson(c.request)).sort();
+                const replayedAggs = searchTools.filter(t => t.aggregations?.available && t.aggregations.query).map(t => canonicalJson(t.aggregations.query)).sort();
+                if (canonicalJson(recordedAggs) !== canonicalJson(replayedAggs)) {
+                    problems.push(`aggregation requests differ from capture (recorded ${recordedAggs.length}, replayed ${replayedAggs.length})`);
                 }
                 if (fixture.result?.totalHits !== null && fixture.result?.totalHits !== undefined && response.total_hits !== fixture.result.totalHits) {
                     problems.push(`total_hits ${response.total_hits} != captured ${fixture.result.totalHits}`);

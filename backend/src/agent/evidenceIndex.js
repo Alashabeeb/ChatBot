@@ -6,10 +6,12 @@
  *  - verifying every citation and every entity in the model's claims (grounding.js),
  *  - the parts of the report the code writes itself (sources, time window, evidence summary).
  *
- * Counts are taken from the records each search returned (at most 200, newest first) plus the exact
- * total OpenSearch reports. When a search matched more than it returned, the true count for a rule,
- * agent or IP is only known to lie between its count in the returned records and that count plus the
- * records not returned. Those bounds are what a cited count is checked against.
+ * Counts come from each search's aggregation request (Phase 5): exact over every match, for this
+ * window and the same window a week earlier. When that request isn't available (it failed, or a
+ * fixture recorded before Phase 5 is replayed), counts fall back to the records the search returned
+ * (at most 200, newest first): the true count is then only known to lie between its count in those
+ * records and that count plus the records not returned. Either way, each count is held as bounds
+ * { min, max } (equal when exact) and a cited count is checked against them.
  */
 
 export const IPV4 = /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.]*\d)/g;
@@ -59,6 +61,14 @@ export function describeWindow(gte, lte) {
     return `${gte} to ${lte || 'now'}`;
 }
 
+/** "the same 24 hours one week earlier", or the shifted range when the window isn't relative. */
+export function describePreviousWindow(gte, lte, previous) {
+    const current = describeWindow(gte, lte);
+    if (current.startsWith('the last ')) return `the same ${current.slice('the last '.length)} one week earlier`;
+    if (current === 'today') return 'the same day one week earlier';
+    return previous ? `${previous.gte} to ${previous.lte} (one week earlier)` : 'one week earlier';
+}
+
 /**
  * results: the executor's tool results ({ tool, parameters, success, data, error }), in plan order.
  */
@@ -77,11 +87,16 @@ export function buildEvidenceIndex(results) {
             const key = searchCounters[base] === 1 ? base : `${base}#${searchCounters[base]}`;
             const gte = result.parameters?.timeRange ?? null;
             const lte = result.parameters?.lteTime ?? null;
+            const minSeverity = result.parameters?.minSeverity ?? null;
+            const aggs = result.success ? result.data?.aggregations ?? null : null;
             const search = {
                 key,
                 scope,
-                label: SOURCE_LABELS[scope] ?? 'Wazuh alerts',
-                window: { gte, lte, text: describeWindow(gte, lte) },
+                minSeverity,
+                label: `${SOURCE_LABELS[scope] ?? 'Wazuh alerts'}${minSeverity ? ` at level ${minSeverity} and above` : ''}`,
+                aggs: aggs?.available && aggs.current ? aggs : null,
+                aggError: aggs && !aggs.available ? aggs.error : null,
+                window: { gte, lte, text: describeWindow(gte, lte), previousText: describePreviousWindow(gte, lte, aggs?.previousWindow) },
                 failed: !result.success,
                 error: result.success ? null : (result.error || 'the search failed'),
                 total: result.success ? (result.data?.totalHits ?? 0) : 0,
@@ -105,41 +120,96 @@ export function buildEvidenceIndex(results) {
     const okSearches = searches.filter(s => !s.failed);
     const records = okSearches.flatMap(s => s.records);
 
-    // Per-entity counts and bounds across all successful searches.
-    const bounded = pick => {
+    // Per-entity counts and bounds across all successful searches: exact from the aggregation where a
+    // search has one (plus OpenSearch's own error bound), otherwise bounded by the records returned.
+    const bounded = (pick, aggPick) => {
         const out = new Map();
+        const add = (key, returned, min, max) => {
+            const current = out.get(key) || { returned: 0, min: 0, max: 0 };
+            current.returned += returned;
+            current.min += min;
+            current.max += max;
+            out.set(key, current);
+        };
         for (const search of okSearches) {
-            const missing = search.total - search.returned;
-            for (const [key, n] of countBy(search.records, pick)) {
-                const current = out.get(key) || { returned: 0, min: 0, max: 0 };
-                current.returned += n;
-                current.min += n;
-                current.max += n + Math.max(missing, 0);
-                out.set(key, current);
+            const sample = countBy(search.records, pick);
+            const agg = search.aggs ? aggPick(search.aggs.current) : null;
+            if (agg) {
+                for (const b of agg.buckets) add(b.key, sample.get(b.key) || 0, b.count, b.count + b.error);
+                // In the sample but outside the aggregation's top buckets: at least its sample count, at most everything else.
+                for (const [key, n] of sample) if (!agg.buckets.some(b => b.key === key)) add(key, n, n, Math.max(agg.otherCount, n));
+            } else {
+                const missing = Math.max(search.total - search.returned, 0);
+                for (const [key, n] of sample) add(key, n, n, n + missing);
             }
         }
         return out;
     };
+    const exactSearches = okSearches.filter(s => s.aggs);
+    const countsExact = okSearches.length > 0 && exactSearches.length === okSearches.length
+        && exactSearches.every(s => [...s.aggs.current.byRule, ...s.aggs.current.byAgent].every(b => b.error === 0));
     const firstIp = record => SRC_IP_PATHS.map(p => get(record, p)).find(v => typeof v === 'string' && new RegExp(`^${IPV4.source}$`).test(v));
 
-    const rules = bounded(r => get(r, ['rule', 'id']));
+    const rules = bounded(r => get(r, ['rule', 'id']), w => ({ buckets: w.byRule, otherCount: w.meta.rule.otherCount }));
     const ruleDescriptions = new Map();
+    for (const s of exactSearches) for (const b of s.aggs.current.byRule) if (b.description && !ruleDescriptions.has(b.key)) ruleDescriptions.set(b.key, b.description);
     for (const r of records) {
         const id = get(r, ['rule', 'id']);
         if (id !== undefined && !ruleDescriptions.has(String(id))) ruleDescriptions.set(String(id), get(r, ['rule', 'description']) ?? null);
     }
-    const agentCounts = bounded(r => get(r, ['agent', 'name']));
-    const ipCounts = bounded(firstIp);
-    const mitre = new Set(records.flatMap(r => asList(get(r, ['rule', 'mitre', 'id']))).map(String));
-    const levels = new Set(records.map(r => get(r, ['rule', 'level'])).filter(l => typeof l === 'number'));
+    const agentCounts = bounded(r => get(r, ['agent', 'name']), w => ({ buckets: w.byAgent, otherCount: w.meta.agent.otherCount }));
+    const ipCounts = bounded(firstIp, w => ({ buckets: w.bySourceIp, otherCount: w.meta.srcip.otherCount + w.meta.winIp.otherCount }));
+    const aggKeys = name => exactSearches.flatMap(s => s.aggs.current[name].map(b => b.key));
+    const mitre = new Set([...records.flatMap(r => asList(get(r, ['rule', 'mitre', 'id']))), ...aggKeys('byMitre')].map(String));
+    const levels = new Set([...records.map(r => get(r, ['rule', 'level'])), ...aggKeys('byLevel')].filter(l => typeof l === 'number'));
+    const severityCounts = new Map();
+    if (countsExact) {
+        for (const s of exactSearches) for (const b of s.aggs.current.byLevel) severityCounts.set(b.key, (severityCounts.get(b.key) || 0) + b.count);
+    } else {
+        for (const [level, n] of countBy(records, r => get(r, ['rule', 'level']))) severityCounts.set(Number(level), n);
+    }
+
+    // Week-on-week comparison, only when every successful search has both windows aggregated.
+    let comparison = null;
+    if (okSearches.length > 0 && okSearches.every(s => s.aggs?.previous)) {
+        const byRule = new Map();
+        for (const s of okSearches) {
+            for (const [period, win] of [['current', s.aggs.current], ['previous', s.aggs.previous]]) {
+                for (const b of win.byRule) {
+                    const entry = byRule.get(b.key) || { current: { min: 0, max: 0 }, previous: { min: 0, max: 0 } };
+                    entry[period].min += b.count;
+                    entry[period].max += b.count + b.error;
+                    byRule.set(b.key, entry);
+                }
+            }
+        }
+        // A rule absent from a window's buckets: 0 if that window had nothing else, otherwise up to the rest.
+        for (const entry of byRule.values()) {
+            for (const period of ['current', 'previous']) {
+                if (entry[period].max === 0) entry[period].max = okSearches.reduce((n, s) => n + s.aggs[period].meta.rule.otherCount, 0);
+            }
+        }
+        comparison = {
+            window: okSearches[0].window.previousText,
+            total: {
+                current: okSearches.reduce((n, s) => n + s.aggs.current.total, 0),
+                previous: okSearches.reduce((n, s) => n + s.aggs.previous.total, 0)
+            },
+            previousTotals: new Map(okSearches.map(s => [s.key, s.aggs.previous.total])),
+            byRule
+        };
+        for (const s of okSearches) for (const b of s.aggs.previous.byRule) if (b.description && !ruleDescriptions.has(b.key)) ruleDescriptions.set(b.key, b.description);
+    }
     const cves = new Set(records.map(r => get(r, ['vulnerability', 'id'])).filter(Boolean).map(String));
 
-    const agentNames = new Set([...records.map(r => get(r, ['agent', 'name'])), ...agents.map(a => a.name)].filter(Boolean).map(String));
+    const agentNames = new Set([...records.map(r => get(r, ['agent', 'name'])), ...agents.map(a => a.name), ...aggKeys('byAgent')].filter(Boolean).map(String));
     const agentIds = new Set([...records.map(r => get(r, ['agent', 'id'])), ...agents.map(a => a.id)].filter(Boolean).map(String));
     const users = new Set(records.flatMap(r => USER_PATHS.map(p => get(r, p))).filter(v => typeof v === 'string' && v && v !== 'N/A'));
 
     // Past investigations count as citable text, but claims citing them are labelled as such.
-    const text = stringsIn([records, agents, memories.map(m => m.content)]).join('\n').toLowerCase();
+    const aggText = exactSearches.flatMap(s => [s.aggs.current, s.aggs.previous].filter(Boolean)
+        .flatMap(w => [...w.byRule, ...w.byAgent, ...w.bySourceIp, ...w.byMitre].flatMap(b => [b.key, b.description ?? ''])));
+    const text = stringsIn([records, agents, memories.map(m => m.content), aggText]).join('\n').toLowerCase();
     const ips = new Set(text.match(IPV4) ?? []);
 
     const totals = new Map(okSearches.map(s => [s.key, s.total]));
@@ -158,6 +228,9 @@ export function buildEvidenceIndex(results) {
         totalMatches,
         anySearchSucceeded: okSearches.length > 0,
         anySearchRan: searches.length > 0,
+        countsExact,
+        severityCounts,
+        comparison,
         rules,
         ruleDescriptions,
         agentCounts,
@@ -177,10 +250,12 @@ export function buildEvidenceIndex(results) {
     };
 }
 
-const top = (counts, n) => [...counts.entries()].sort((a, b) => b[1].returned - a[1].returned || a[0].localeCompare(b[0], 'en', { numeric: true })).slice(0, n);
+const exactOrBounds = b => (b.min === b.max ? b.min : { atLeast: b.min, atMost: b.max });
+
+const top = (counts, n) => [...counts.entries()].sort((a, b) => b[1].min - a[1].min || b[1].returned - a[1].returned || a[0].localeCompare(b[0], 'en', { numeric: true })).slice(0, n);
 
 /** Evidence for the report model: totals, counts it may cite, and a bounded sample of records. */
-export function evidenceForModel(index, { sampleSize = 30 } = {}) {
+export function evidenceForModel(index, { sampleSize = index.countsExact ? 10 : 30 } = {}) {
     const searches = index.searches.map(s => {
         if (s.failed) return { key: s.key, source: s.label, window: s.window.text, failed: true, error: s.error };
         return {
@@ -189,7 +264,7 @@ export function evidenceForModel(index, { sampleSize = 30 } = {}) {
             window: s.window.text,
             totalMatches: s.total,
             recordsRetrieved: s.returned,
-            countsCover: s.complete ? 'all matches' : `the ${s.returned} most recent of ${s.total} matches`,
+            countsCover: s.aggs ? 'all matches (aggregated)' : s.complete ? 'all matches' : `the ${s.returned} most recent of ${s.total} matches`,
             sampleLogs: s.records.slice(0, sampleSize).map(log => ({
                 time: log['@timestamp'] || log.vulnerability?.detected_at || null,
                 ruleId: log.rule?.id ?? null,
@@ -204,13 +279,27 @@ export function evidenceForModel(index, { sampleSize = 30 } = {}) {
         };
     });
     const asCounts = (counts, n, label) => top(counts, n).map(([value, c]) => ({ [label]: value, count: c.min === c.max ? c.min : { atLeast: c.min, atMost: c.max } }));
+    const comparison = index.comparison && {
+        previousWindow: index.comparison.window,
+        total: index.comparison.total,
+        previousTotals: Object.fromEntries(index.comparison.previousTotals),
+        byRule: [...index.comparison.byRule.entries()]
+            .sort((a, b) => b[1].current.min - a[1].current.min || b[1].previous.min - a[1].previous.min)
+            .slice(0, 15)
+            .map(([ruleId, c]) => ({ ruleId, current: exactOrBounds(c.current), previous: exactOrBounds(c.previous) })),
+        newThisWindow: [...index.comparison.byRule.entries()].filter(([, c]) => c.previous.max === 0 && c.current.min > 0).map(([id]) => id),
+        notSeenThisWindow: [...index.comparison.byRule.entries()].filter(([, c]) => c.current.max === 0 && c.previous.min > 0).map(([id]) => id)
+    };
     return {
         searches,
+        countsExact: index.countsExact,
         counts: {
             byRule: top(index.rules, 15).map(([id, c]) => ({ ruleId: id, description: index.ruleDescriptions.get(id), count: c.min === c.max ? c.min : { atLeast: c.min, atMost: c.max } })),
             byAgent: asCounts(index.agentCounts, 10, 'agent'),
-            bySourceIp: asCounts(index.ipCounts, 10, 'ip')
+            bySourceIp: asCounts(index.ipCounts, 10, 'ip'),
+            bySeverity: [...index.severityCounts.entries()].sort((a, b) => a[0] - b[0]).map(([level, count]) => ({ level, count }))
         },
+        comparison: comparison || null,
         mitreTechniques: [...index.mitre].sort(),
         agents: index.agents.slice(0, 100).map(a => ({ id: a.id, name: a.name, status: a.status, ip: a.ip })),
         agentsTotal: index.totals.get('getEndpointStatus') ?? null,
