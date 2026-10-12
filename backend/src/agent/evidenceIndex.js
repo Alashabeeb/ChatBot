@@ -58,6 +58,8 @@ export function describeWindow(gte, lte) {
         return n === 1 ? `the last ${unit}` : `the last ${n} ${unit}s`;
     }
     if (String(gte) === 'now/d' && !lte) return 'today';
+    const start = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(String(gte));
+    if (start && !lte) return `since ${start[1]} ${start[2]} UTC`;
     return `${gte} to ${lte || 'now'}`;
 }
 
@@ -66,13 +68,15 @@ export function describePreviousWindow(gte, lte, previous) {
     const current = describeWindow(gte, lte);
     if (current.startsWith('the last ')) return `the same ${current.slice('the last '.length)} one week earlier`;
     if (current === 'today') return 'the same day one week earlier';
+    if (!lte) return 'the same period one week earlier';
     return previous ? `${previous.gte} to ${previous.lte} (one week earlier)` : 'one week earlier';
 }
 
 /**
  * results: the executor's tool results ({ tool, parameters, success, data, error }), in plan order.
  */
-export function buildEvidenceIndex(results) {
+/** options.compare: include the week-earlier comparison (only when the question asks for one; see comparison.js). */
+export function buildEvidenceIndex(results, { compare = true } = {}) {
     const searches = [];
     const agents = [];
     const memories = [];
@@ -170,9 +174,9 @@ export function buildEvidenceIndex(results) {
         for (const [level, n] of countBy(records, r => get(r, ['rule', 'level']))) severityCounts.set(Number(level), n);
     }
 
-    // Week-on-week comparison, only when every successful search has both windows aggregated.
+    // Week-on-week comparison, when asked for and every successful search has both windows aggregated.
     let comparison = null;
-    if (okSearches.length > 0 && okSearches.every(s => s.aggs?.previous)) {
+    if (compare && okSearches.length > 0 && okSearches.every(s => s.aggs?.previous)) {
         const byRule = new Map();
         for (const s of okSearches) {
             for (const [period, win] of [['current', s.aggs.current], ['previous', s.aggs.previous]]) {
@@ -234,6 +238,7 @@ export function buildEvidenceIndex(results) {
         allAggregated: okSearches.length > 0 && exactSearches.length === okSearches.length,
         severityCounts,
         comparison,
+        comparisonRequested: compare,
         rules,
         ruleDescriptions,
         agentCounts,

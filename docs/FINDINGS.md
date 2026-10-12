@@ -387,6 +387,11 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Cause:** the tool list as indented JSON (about 5,100 characters), the whole chat history, and stored memories holding whole previous answers. A long conversation could push planning over the model's limit, and the run would fall back to the rule-based planner.
 - **Now:** compact tool list (about 3,700 characters), the last four messages shortened, stored context compact and shortened, a hard limit `PLANNER_PROMPT_MAX_CHARS` (10,000) that drops stored context first, then history, and `LLM_PLANNER_MAX_TOKENS` (600). Run records keep the planner request size and what was trimmed; `findRun.js` shows it.
 
+**F-72: Every answer compared with the same window a week earlier, asked or not.** Reported 2026-10-12 from production ("What is the log on the wazuh for the past 24hrs" answered correctly, then compared with the same 24 hours one week earlier). **FIXED (same day).**
+- **Cause:** the week-earlier counts (Phase 5) were always put in the header ("Compared with …"), in the summary ("Change", "New this period") and in the evidence sent to the model, whose prompt told it to use them.
+- **Now:** `backend/src/agent/comparison.js` decides from the question whether a comparison was asked for: compare / vs / "more than", a change or trend (increase, drop, spike, trend, what changed), or what is unusual or new (which needs a baseline). Otherwise the comparison is left out of the answer and out of the model's evidence, and the prompt says not to compare. The aggregation request itself is unchanged (fixture replay depends on its shape). Tests: `backend/test/comparisonScope.test.js`; 8 of 8 mutants killed.
+- **Also fixed:** a search starting at a fixed time and running to now described its earlier window as "2026-09-28T11:34:18.119Z to now-168h"; it now reads "since 2026-10-05 11:34 UTC" and "the same period one week earlier".
+
 
 ## Run logging (added 2026-09-16)
 

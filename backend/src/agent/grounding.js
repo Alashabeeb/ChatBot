@@ -217,7 +217,7 @@ export function renderHeader(index) {
         const { total, window } = index.comparison;
         lines.push(`**Compared with** ${window}: ${plural(total.current, 'match', 'matches')}, against ${total.previous.toLocaleString('en-US')}.`);
     } else if (!index.countsExact && index.totalMatches > 0) {
-        lines.push('**Counts** come from the records retrieved (the most recent, up to 200 per search), not from every match, and there is no week-earlier comparison.');
+        lines.push(`**Counts** come from the records retrieved (the most recent, up to 200 per search), not from every match${index.comparisonRequested ? ', and there is no week-earlier comparison' : ''}.`);
     }
     const failed = index.unavailable.filter(u => !['threat intelligence', 'process inspection'].includes(u.source));
     if (failed.length) lines.push(`**Not available:** ${failed.map(u => `${u.source}: ${u.reason}`).join('; ')}. Anything that source would have shown is missing from this answer.`);

@@ -21,7 +21,7 @@ const quiet = t => { for (const level of ['log', 'warn', 'error']) t.mock.method
 async function ask(t, llm) {
     quiet(t);
     stubBackends(t, { llm, logs: (url, body) => (isFirewallScopeQuery(body) ? [] : NOW), previousLogs: WEEK_AGO });
-    const response = await runAgentWorkflow('what is going on with the windows hosts', [], USER_ID);
+    const response = await runAgentWorkflow('is anything unusual with the windows hosts', [], USER_ID);
     await flushBackgroundWork();
     return response;
 }

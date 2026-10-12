@@ -9,6 +9,7 @@ import { LLM_STREAM_IDLE_TIMEOUT_MS } from '../config/env.js';
 import { modelFor } from '../llm/models.js';
 import { LLM_REPORT_TIMEOUT_MS } from '../config/env.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
+import { wantsComparison } from './comparison.js';
 import { buildEvidenceIndex, evidenceForModel, fitEvidenceToBudget } from './evidenceIndex.js';
 import { listingRequest } from './listing.js';
 import { applySeverityFloor, rightNowMinSeverity } from './severityFloor.js';
@@ -494,7 +495,7 @@ async function runPipeline(run, text, history, options = {}) {
     // 4. LLM Reasoning Phase (grounded: claims with citations, verified in code before rendering)
     // ==========================================
     const reasonStart = Date.now();
-    const index = buildEvidenceIndex(inPlanOrder);
+    const index = buildEvidenceIndex(inPlanOrder, { compare: wantsComparison(question) });
     const listing = listingRequest(question);
     let finalSummary = '';
     let reportSource;

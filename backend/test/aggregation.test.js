@@ -79,8 +79,10 @@ test('the model gets exact counts over every match, not counts from the sample',
     assert.ok(evidence.searches[0].sampleLogs.length <= 10, 'raw records are only a short illustration now');
 });
 
-test('the week-earlier comparison reaches the model and the code-written header', async (t) => {
-    const { stubs, response } = await ask(t, sampledLogs);
+const COMPARE = 'how do failed logons today compare with last week';
+
+test('asked to compare: the week-earlier comparison reaches the model and the code-written header', async (t) => {
+    const { stubs, response } = await ask(t, { ...sampledLogs, question: COMPARE });
     const { comparison } = modelEvidence(stubs);
     assert.equal(comparison.previousWindow, 'the same 24 hours one week earlier');
     assert.deepEqual(comparison.total, { current: 1500, previous: 10 });
@@ -96,7 +98,7 @@ test('exact counts close F-63: an inflated count is now dropped, the true one ke
     const lastWeek = { text: 'A week earlier rule 5710 fired 10 times.', cite: [cite('previous', '5710', 10)] };
     const wrongLastWeek = { text: 'A week earlier rule 5710 fired 3 times.', cite: [cite('previous', '5710', 3)] };
     const prevTotal = { text: 'A week earlier there were 10 matches.', cite: [cite('previous', 'searchSecurityLogs', 10)] };
-    const { response, run } = await ask(t, { ...sampledLogs, report: { findings: [truth, inflated, lastWeek, wrongLastWeek, prevTotal] } });
+    const { response, run } = await ask(t, { ...sampledLogs, question: COMPARE, report: { findings: [truth, inflated, lastWeek, wrongLastWeek, prevTotal] } });
     assert.ok(response.summary.includes(truth.text));
     assert.ok(response.summary.includes(lastWeek.text));
     assert.ok(response.summary.includes(prevTotal.text));
@@ -112,6 +114,9 @@ test('if the aggregation request fails, the run carries on with sample counts an
     assert.equal(evidence.comparison, null);
     assert.equal(run.status, 'completed');
     assert.match(response.summary, /\*\*Counts\*\* come from the records retrieved/);
+    assert.doesNotMatch(response.summary, /week-earlier/, 'no comparison was asked for, so its absence is not mentioned');
+    const compared = await ask(t, { logs: [rec('5710')], aggregations: 'fail', question: COMPARE });
+    assert.match(compared.response.summary, /not from every match, and there is no week-earlier comparison\./);
     const search = run.tools.find(x => x.tool === 'searchSecurityLogs' && x.parameters.sourceScope === 'non_firewall');
     assert.equal(search.aggregations.available, false);
     assert.match(search.aggregations.error, /500/);
