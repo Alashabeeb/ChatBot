@@ -10,6 +10,7 @@ Opened 2026-09-16; all fixes and findings live in this repository on `main` sinc
 - **Phase 2 (2026-10-07):** F-03, F-08b, F-11, F-12, F-16, F-20, F-22, F-23, F-24, F-29, F-32, F-33, F-35, F-36, F-40, F-42, F-46 fixed; F-31 documented. New: F-55 to F-60.
 - **Phase 3 (2026-10-12):** measurement harness (`evals/`). F-14 corrected (200 hits per search, not 10,000). F-47 closed (runbook rebuilt). Replay no longer reports a false divergence when a search failed at capture. New: F-61, F-62.
 - **Phase 4 (2026-10-12):** grounded answers: every claim cited and verified in code; reports open with sources and time window. F-62 fixed. New: F-63.
+- **Phase 5 (2026-10-12):** exact counts by aggregation, week-on-week comparison, severity floor for "right now", per-stage timings. F-14 and F-63 fixed where aggregations are available. New: F-64.
 - **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
@@ -165,7 +166,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Where:** `backend/src/agent/runtime.js:186`.
 - **Problem:** `memoryManager.write(...)` in the no-results branch is neither awaited nor given a `.catch`. If the write fails (for example a foreign-key error for an unknown user), Node's default unhandled-rejection behavior crashes the process.
 
-**F-14: Up to 10,000 raw logs per reply are sent to the browser and saved to SQLite.** **CORRECTED 2026-10-12 (Phase 3):** the code has returned `size: 200` per search, with an exact `track_total_hits` total, since `c0e2010` ("Push 26", already in production). The 10,000 figure came from an older copy. What remains: up to 200 records per search (two searches per question with the firewall fan-out) are still sent to the browser and saved, while the model sees 30 of them. Phase 5 (aggregation) replaces this.
+**F-14: Up to 10,000 raw logs per reply are sent to the browser and saved to SQLite.** **Model side FIXED 2026-10-12 (Phase 5):** the model now gets aggregated counts and at most 10 example records per search; the browser still receives up to 200 per search for View Full Details. **CORRECTED 2026-10-12 (Phase 3):** the code has returned `size: 200` per search, with an exact `track_total_hits` total, since `c0e2010` ("Push 26", already in production). The 10,000 figure came from an older copy. What remains: up to 200 records per search (two searches per question with the firewall fan-out) are still sent to the browser and saved, while the model sees 30 of them. Phase 5 (aggregation) replaces this.
 - **Where:** `backend/src/integrations/opensearch.integration.js:29`, `src/pages/ChatPage.jsx`.
 - **Problem:** the model only sees 30 of them.
 
@@ -340,10 +341,15 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Problem:** a failed search is presented as an empty result, and the answer names neither the time window nor the sources that failed. An analyst could read it as "nothing happened". `evals/check.py` flags it (`H8`, `H10`).
 - **Plan:** Phase 4.4 ("every report opens with the sources and time window actually searched") covers it.
 
-**F-63: With sampled evidence, a wrong count inside the possible range can't be caught.** Found in Phase 4.
+**F-63: With sampled evidence, a wrong count inside the possible range can't be caught.** Found in Phase 4. **FIXED 2026-10-12 (Phase 5)** whenever the aggregation request succeeds: counts are then exact over every match, and an inflated count is dropped. It still applies when aggregations are unavailable (the request failed, or a fixture from before Phase 5 is replayed); the answer then says its counts come from the records retrieved.
 - **Where:** `backend/src/agent/grounding.js` (count bounds), `evals/check.py` (`H3`).
 - **Problem:** each search returns at most 200 records with an exact total. When more matched, a rule's true count is only known to lie between its count in those records and that count plus the records not returned, so any count in that range is accepted, right or wrong.
 - **Plan:** Phase 5.1 (aggregate counts over all matches before the model call) makes the counts exact.
+
+**F-64: Aggregations assume the standard Wazuh field mapping.** Found in Phase 5.
+- **Where:** `backend/src/integrations/opensearch.integration.js` (`WINDOW_AGGS`).
+- **Problem:** `terms` aggregations need `rule.id`, `agent.name`, `data.srcip`, `data.win.eventdata.ipAddress`, `rule.level` and `rule.mitre.id` to be keyword or numeric fields. That's true of the standard Wazuh index template, but not verified against this deployment. If a field is `text`, OpenSearch rejects the request and every answer falls back to sample counts (logged as `[OpenSearch] Aggregation request failed`). Terms counts across shards can also carry an error bound; it's read and widens the accepted range rather than being ignored.
+- **Check:** the first Phase 5 capture shows it: aggregation calls with `response`, not `error`.
 
 ## Run logging (added 2026-09-16)
 

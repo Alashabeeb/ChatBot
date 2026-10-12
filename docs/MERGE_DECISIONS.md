@@ -207,3 +207,34 @@ These are synthetic: a stub model that follows the format perfectly scores 100, 
 - The hung-model test now gives the search a working stub, so the report stage is still reached and still times out; before, the search failure masked it.
 - The threat-intel guard caught the words "threat scores" in the new prompt; the prompt was reworded, the guard kept.
 
+## Phase 5: Better evidence, faster (2026-10-12)
+
+| # | Decision | Why |
+|---|---|---|
+| A1 | **Aggregations go in a separate size-0 request per search**, not into the record search. One request covers this window and the same window a week earlier (two `filter` aggregations over `terms` by rule, agent, source IP, level and technique). | The record search stays byte-identical, so fixtures captured before Phase 5, including the baseline you're about to capture, still replay; they simply have no aggregation, and the answer says its counts are from the records retrieved. One request instead of two halves the extra load. |
+| A2 | **An aggregation failure never fails the search.** The answer falls back to sample counts and says so; the run record shows `aggregations.available: false` and the error. | Exact counts are an improvement, not a dependency. In replay, a missing aggregation is the same fallback, never a live call and never invented. |
+| A3 | **Counts are held as bounds everywhere** (`{min, max}`): exact from the aggregation (widened by OpenSearch's own `doc_count_error_upper_bound` if it reports one), or the sample bounds as before. The checker does the same. | One code path for exact and approximate counts, and an honest one when OpenSearch's terms counts are approximate across shards. |
+| A4 | **The model now gets aggregated counts, `bySeverity`, `countsExact`, the comparison, and at most 10 example records per search** (30 when counts aren't exact). | Requested (5.1: "not raw events"). Fewer raw records means a smaller prompt on real data (below). |
+| A5 | **"Previous" = the same window shifted 7 days** (`now-24h` → `now-192h..now-168h`; ISO ranges shifted by 7 days; months and years in date maths taken as 30 and 365 days). New citation kind `previous` for last week's totals and rule counts, checked like the others. The header states the comparison in code. | Requested (5.2). For windows longer than a week the two windows overlap; that's what "the same window seven days earlier" means, and the header names the window, so it's visible. |
+| A6 | **⚠ Severity floor: level 7 for questions containing "right now", "currently", "at the moment" and similar**, only when the planner set no level, never for vulnerability searches. `RIGHT_NOW_MIN_SEVERITY` adjusts it; `0` turns it off. The header says "at level 7 and above"; the run record notes it. | Requested (5.3). **Review the default and the trigger phrases.** Wazuh level 7 is a common "worth a look" threshold, but it's a judgement. It changes the record search for those questions, so the baseline's "what is going on right now" replays as diverged with today's code (runbook explains; `RIGHT_NOW_MIN_SEVERITY=0` avoids it). |
+| A7 | **Per-stage timings in every run record:** memory retrieval, planning, execution (and each tool, with its scope), aggregation, the model call alone (`reasoningDuration`), verification and rendering (`verificationDuration`), total, and the report prompt's size. A stage not reached is `null`, not 0. | Requested (5.4). Separating the model call from the code around it is what shows where time goes. |
+| A8 | **⚠ Field mapping assumed** (F-64). | Matches the standard Wazuh template; the first Phase 5 capture will confirm it. |
+
+**Checker run (synthetic; same scenarios, same stub models, same scorer, Phase 4 code vs Phase 5 code).** The sampled scenario now has a realistic page (200 records returned of 1,500 matches).
+
+| | Phase 4 | Phase 5 |
+|---|---|---|
+| Mean score, faithful / adversarial stub model | 100 / 100 | 100 / 100 |
+| Fabrications reaching the analyst (checker-visible) | 0 | 0 |
+| Inflated count shown, sampled scenario with aggregations | yes (F-63) | **no** |
+| Inflated count shown, sampled scenario without aggregations (pre-Phase-5 fixture) | yes | yes (same fallback, and the answer now says counts are sampled) |
+| Report prompt, realistic 200-record search | 15,150 chars | **8,877 chars (−41%)** |
+| Report prompt, small scenarios (≤ 13 records) | 6,100–9,678 | 7,152–10,459 (+~1,000: comparison data and longer instructions) |
+| OpenSearch requests per planned search | 2 | 4 (each half adds one aggregation request) |
+
+The checker can't see the inflated count in the Phase 4 run (its capture has no aggregation either), which is why it's listed separately. Speed here means prompt size: model latency grows with input, and the stub model has none. Real speed needs the capture and an approved model, and every run record now has the per-stage timings to measure it.
+
+**Checker changes this phase:** reads aggregation requests (exact counts, not counted as searches) and keeps the sample bounds when there are none. New synthetic cases: exact count right and wrong, and the sampled scenario as captured before Phase 5. 12 Phase 5 mutants, all killed, including "checker ignores aggregations".
+
+**Tests changed in Phase 5:** fixture tests distinguish searches from aggregation requests (a capture now records both); the failed-search replay test removes the aggregation request a failed search would never have sent. Test helpers answer aggregation requests from `scripts/lib/fakeAggregations.js`, shared with the eval scenarios.
+
