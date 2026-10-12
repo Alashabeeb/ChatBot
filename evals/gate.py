@@ -76,8 +76,11 @@ def score_real(directory):
 
 
 def evaluate(results, baseline):
-    """Returns (problems, cases, means): problems that fail the gate, and the scores to record."""
-    problems = []
+    """Returns (problems, cases, means, notes): problems that fail the gate, the scores to record, and
+    notes (new cases). A case not yet in the baseline can't have dropped: means are compared over the
+    cases the baseline already holds, and --update adds the new one."""
+    problems, notes = [], []
+    comparable = {}
     cases, by_mode = {}, {}
     legacy_fabrications = 0
     seen_legacy = False
@@ -99,19 +102,25 @@ def evaluate(results, baseline):
         cases[key] = r['score']
         by_mode.setdefault(mode, []).append(r['score'])
         base = baseline.get('cases', {}).get(key)
-        if base is not None and r['score'] + TOLERANCE < base:
-            problems.append(f'{label}: score {r["score"]:g} < baseline {base:g}')
+        if base is None:
+            if baseline.get('cases'):
+                notes.append(f'new case {label}: score {r["score"]:g} (not in the baseline yet; run --update to add it)')
+        else:
+            comparable.setdefault(mode, []).append(r['score'])
+            if r['score'] + TOLERANCE < base:
+                problems.append(f'{label}: score {r["score"]:g} < baseline {base:g}')
     for key in baseline.get('cases', {}):
         if key not in cases and (key.startswith('pipeline/') or any(k.startswith('real/') for k in cases)):
             problems.append(f'{key.partition("/")[2] if key.startswith("pipeline/") else key}: missing from the results')
     means = {mode: round(sum(v) / len(v), 3) for mode, v in by_mode.items()}
-    for mode, mean in means.items():
+    for mode, scores in comparable.items():
+        mean = round(sum(scores) / len(scores), 3)
         base = baseline.get('means', {}).get(mode)
         if base is not None and mean + TOLERANCE < base:
             problems.append(f'{mode}: mean {mean:g} < baseline {base:g}')
     if seen_legacy and legacy_fabrications == 0:
         problems.append('legacy pass-through shows no fabrications: the evaluation can no longer see them')
-    return problems, cases, means
+    return problems, cases, means, notes
 
 
 def main(argv=None):
@@ -132,13 +141,15 @@ def main(argv=None):
                if args.pipeline_results else run_pipeline_eval())
     if args.real:
         results = results + score_real(args.real)
-    gate_problems, cases, means = evaluate(results, {} if args.update else baseline)
+    gate_problems, cases, means, notes = evaluate(results, {} if args.update else baseline)
     problems += gate_problems
 
     print()
     for mode, mean in sorted(means.items()):
         n = sum(1 for k in cases if (k.split('/')[1] if k.startswith('pipeline/') else 'real') == mode)
         print(f'  {mode:12} {n:3} case(s)  mean score {mean:g}' + (f'  (baseline {baseline["means"][mode]:g})' if mode in baseline.get('means', {}) else ''))
+    for note in notes:
+        print(f'  NOTE  {note}')
     for p in problems:
         print(f'  FAIL  {p}')
 

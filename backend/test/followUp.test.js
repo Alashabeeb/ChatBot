@@ -50,7 +50,7 @@ test('a follow-up naming something in the previous evidence is answered from it:
     assert.equal(r.planned, false, 'no planner call');
     assert.equal(r.searched, false, 'no OpenSearch call');
     assert.equal(r.reported, true, 'the report model answers from the cached evidence');
-    assert.match(r.prompt, /"ruleId": "5710"/);
+    assert.match(r.prompt, /"ruleId":"5710"/);   // compact JSON (report size fix 2)
     assert.match(r.response.summary, /^\*\*Answered from the evidence of your previous search\*\* \("show me failed logons today"/);
     assert.match(r.response.summary, /\*\*Searched:\*\* Wazuh alerts \(3 matches\)/);
     assert.ok(r.response.summary.includes(REPORT.answer[0].text), 'claims still verified against that evidence and shown');

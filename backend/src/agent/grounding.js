@@ -1,4 +1,5 @@
 import { IPV4, topCounts } from './evidenceIndex.js';
+import { listingTable, mostRecentRecords } from './listing.js';
 
 /**
  * Grounded reports (Phase 4). The report model returns claims, each with citations into the evidence;
@@ -275,4 +276,17 @@ export function renderNoResults(index) {
 
 export function renderSearchFailed(index) {
     return [renderHeader(index), '**The search could not be completed**, so nothing can be concluded about this question. Try again, or check the connection to OpenSearch and Wazuh.'].join('\n\n');
+}
+
+/** "The 20 most recent logs": the header, then exactly those records, newest first (F-68). No model. */
+export function renderRecentRecords(index, count) {
+    const { records, retrieved } = mostRecentRecords(index, count);
+    const total = index.totalMatches;
+    const lead = records.length < count && total <= retrieved
+        ? `**Only ${plural(records.length, 'record')} matched**, newest first:`
+        : count === 1
+            ? `**The most recent record** of ${plural(total, 'match', 'matches')}:`
+            : `**The ${count} most recent records** of ${plural(total, 'match', 'matches')}, newest first:`;
+    const more = retrieved > records.length ? `\n\nAll ${retrieved.toLocaleString('en-US')} records retrieved are under View Full Details.` : '';
+    return `${renderHeader(index)}\n\n${lead}\n\n${listingTable(records)}${more}`;
 }

@@ -252,6 +252,7 @@ try {
     for (const old of fs.readdirSync(OUT_DIR).filter(n => n.startsWith('SYNTHETIC-') && n.endsWith('.json'))) fs.rmSync(path.join(OUT_DIR, old));
     let written = 0;
     for (const [name, scenario] of Object.entries(SCENARIOS)) {
+        if (!ANSWERS[name]) continue;   // pipeline-only scenario (scripts/evalSyntheticPipeline.js)
         stubHttp(axios, scenario, { report: '(replaced by each answer variant)' });
         console.log = console.warn = console.error = () => {};
         await captureFixtures({ questions: [scenario.question], outDir: tmp, timeoutMs: 10000, log: () => {} });

@@ -29,7 +29,7 @@ const llmServer = http.createServer((req, res) => {
         if (system.includes('Planning Engine')) return reply(JSON.stringify(PLAN));
         if (system.includes('Memory Engine')) return reply('{"summary":"s","keyEntities":[]}');
         model.reportRequests++;
-        if (body.stream) model.streamModels.push(body.model);
+        if (body.stream) { model.streamModels.push(body.model); model.streamMaxTokens.push(body.max_tokens); }
         if (model.behaviour === 'down') return res.writeHead(400, { 'Content-Type': 'application/json' }).end('{"error":"This model\'s maximum context length is 8192 tokens"}');
         const text = JSON.stringify(model.report);
         if (!body.stream) return reply(text);
@@ -79,7 +79,7 @@ const LOGS = [
 const realPost = axios.post;
 beforeEach((t) => {
     clearEvidenceCache();
-    Object.assign(model, { behaviour: 'stream', pauseMs: 300, reportFinishedAt: null, clientClosed: false, reportRequests: 0, streamModels: [] });
+    Object.assign(model, { behaviour: 'stream', pauseMs: 300, reportFinishedAt: null, clientClosed: false, reportRequests: 0, streamModels: [], streamMaxTokens: [] });
     model.report = { insufficient_evidence: false, answer: [CLAIM_1], findings: [CLAIM_2, FABRICATED], next_steps: [STEP] };
     delete process.env.REPORT_LLM_MODEL;
     t.mock.method(axios, 'post', async (url, body, config) => {
@@ -220,4 +220,5 @@ test('the streamed report goes to the configured report model', async () => {
     process.env.REPORT_LLM_MODEL = 'stream-report-model';
     await stream({ text: 'show me failed logons today', history: [] });
     assert.deepEqual(model.streamModels, ['stream-report-model']);
+    assert.deepEqual(model.streamMaxTokens, [1000], 'the streamed report is capped too (LLM_REPORT_MAX_TOKENS)');
 });

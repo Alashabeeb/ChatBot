@@ -85,6 +85,8 @@ export const SCENARIOS = {
 };
 // The same scenario as captured before Phase 5: no aggregation requests, so counts are only bounded.
 SCENARIOS['right-now-sampled-pre-phase5'] = { ...SCENARIOS['right-now-sampled'], preAggregation: true };
+// "The 10 most recent logs": answered with a table the code writes from the records retrieved (F-68).
+SCENARIOS['recent-records'] = { ...SCENARIOS['top-alerts-week'], question: 'show me the 10 most recent logs' };
 // Last week, rule 60122 barely fired: this week's 6 is a measurable change.
 SCENARIOS['top-alerts-week'].previousLogs = [hit('60122', 'Windows logon failure', 5, ['T1110'], AG.dc01, { data: { win: { eventdata: { ipAddress: '185.220.101.7', targetUserName: 'jdoe' } } } })];
 

@@ -368,7 +368,7 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Problem:** when OpenSearch's terms counts carried an error bound (normal across shards), the summary said "in the most recent records retrieved" and "at least …", the wording meant for sample counts, although the counts covered every match. Numbers also lacked thousands separators.
 - **Now:** "counted over every match; OpenSearch's counts are approximate" with "about 1,386,641"; exact counts plain; sample counts keep their wording.
 
-**F-68: "List the N most recent logs" isn't something the answer format can do.** Found 2026-10-12 from a production screenshot.
+**F-68: "List the N most recent logs" isn't something the answer format can do.** Found 2026-10-12 from a production screenshot. **FIXED (same day):** listing requests ("the 20 most recent logs", "last 10 alerts", "latest logs") are answered with a table the code writes from the records retrieved, newest first across all searches, no model call (`backend/src/agent/listing.js`). "Top 20 alerts" (by frequency) and time windows ("alerts in the last 24 hours") are not listings.
 - **Where:** the report contract (Phase 4) and the evidence sent to the model (Phase 5: at most 10 example records).
 - **Problem:** the pipeline retrieves the 200 most recent records, newest first (all visible under View Full Details), but the answer is built from counts and cited statements. A request for a list gets a summary of counts at best.
 - **Proposed:** for listing questions, the code itself renders a table of the N most recent records (time, rule, level, agent, source IP), exact and with nothing to verify.
@@ -376,6 +376,11 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 **F-69: The deploy and capture guides assume a Windows host; production runs Ubuntu with pm2 and nginx.** Found 2026-10-12 from a production screenshot.
 - **Where:** `docs/DEPLOY.md`, `docs/CAPTURE_RUNBOOK.md` (PowerShell throughout).
 - **Problem:** the steps are right in substance (backup, `JWT_SECRET`, `npm ci` in both folders, build, restart), but the commands are PowerShell, while production uses `pm2 restart` and copies `dist/` to `/var/www/html` for nginx.
+
+**F-70: The report request could exceed the model's input limit on large searches.** Found 2026-10-12 from production ("Model unavailable" on "show me the top 20 most recent logs"; the exact server error is not yet confirmed). **FIXED (same day).**
+- **Cause:** OpenSearch marks its counts approximate on very large totals; the code then sent 30 example records per search instead of 10 (60 in all), as indented JSON, plus the whole chat history. A production-shaped search measured about 35,800 characters (roughly 11,000 tokens), beyond a typical 8,192-token limit.
+- **Now:** 10 examples whenever the counts come from the aggregation, compact JSON, the last two chat turns cut to 1,000 characters each, a hard limit `REPORT_PROMPT_MAX_CHARS` (16,000) that trims the evidence and records what it trimmed, and `LLM_REPORT_MAX_TOKENS` (1,000) for the answer. The same search now measures about 15,400 characters (roughly 4,800 tokens), history included.
+- **Still to confirm:** the server's own error for the failed runs (`findRun.js --request-id …` after deploying `ca5ba5d` or later), and the model server's real limit (`/v1/models` on vLLM shows `max_model_len`).
 
 
 ## Run logging (added 2026-09-16)

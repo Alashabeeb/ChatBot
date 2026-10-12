@@ -257,7 +257,10 @@ const exactOrBounds = b => (b.min === b.max ? b.min : { atLeast: b.min, atMost: 
 const top = (counts, n) => [...counts.entries()].sort((a, b) => b[1].min - a[1].min || b[1].returned - a[1].returned || a[0].localeCompare(b[0], 'en', { numeric: true })).slice(0, n);
 
 /** Evidence for the report model: totals, counts it may cite, and a bounded sample of records. */
-export function evidenceForModel(index, { sampleSize = index.countsExact ? 10 : 30 } = {}) {
+// Aggregated counts cover every match even when OpenSearch marks them approximate, so a few example
+// records are enough; only without aggregations do more examples help (F-67 follow-up: this used to
+// send 30 per search whenever counts were approximate, tripling the request).
+export function evidenceForModel(index, { sampleSize = index.allAggregated ? 10 : 30 } = {}) {
     const searches = index.searches.map(s => {
         if (s.failed) return { key: s.key, source: s.label, window: s.window.text, failed: true, error: s.error };
         return {
@@ -295,6 +298,7 @@ export function evidenceForModel(index, { sampleSize = index.countsExact ? 10 : 
     return {
         searches,
         countsExact: index.countsExact,
+        countsCoverAllMatches: index.allAggregated,
         counts: {
             byRule: top(index.rules, 15).map(([id, c]) => ({ ruleId: id, description: index.ruleDescriptions.get(id), count: c.min === c.max ? c.min : { atLeast: c.min, atMost: c.max } })),
             byAgent: asCounts(index.agentCounts, 10, 'agent'),
@@ -311,3 +315,36 @@ export function evidenceForModel(index, { sampleSize = index.countsExact ? 10 : 
 }
 
 export { top as topCounts };
+
+/**
+ * Shrinks the model's evidence until its compact JSON fits maxChars (fix 3): example records first,
+ * then the lists, longest first. Returns { evidence, trimmed } where trimmed names each step taken;
+ * the evidence carries the same list so the model knows what it isn't seeing. Verification always
+ * uses the full index, so nothing true becomes unverifiable by being trimmed here.
+ */
+export function fitEvidenceToBudget(evidence, maxChars) {
+    const ev = structuredClone(evidence);
+    const trimmed = [];
+    const size = () => JSON.stringify({ ...ev, trimmed }).length;
+    const cut = (list, n) => (Array.isArray(list) && list.length > n ? list.slice(0, n) : list);
+    const steps = [
+        ['example records cut to 5 per search', () => ev.searches.forEach(s => { if (s.sampleLogs) s.sampleLogs = cut(s.sampleLogs, 5); })],
+        ['example records left out', () => ev.searches.forEach(s => { if (s.sampleLogs) s.sampleLogs = []; })],
+        ['agent list cut to 20', () => { ev.agents = cut(ev.agents, 20); }],
+        ['week-earlier comparison cut to the top 5 rules', () => { if (ev.comparison) ev.comparison.byRule = cut(ev.comparison.byRule, 5); }],
+        ['counts cut to the top 8 rules, 5 agents and 5 IPs', () => { ev.counts.byRule = cut(ev.counts.byRule, 8); ev.counts.byAgent = cut(ev.counts.byAgent, 5); ev.counts.bySourceIp = cut(ev.counts.bySourceIp, 5); }],
+        ['past investigations cut to 1', () => { ev.pastInvestigations = cut(ev.pastInvestigations, 1); }],
+        ['agent list left out', () => { ev.agents = []; }],
+        ['rule descriptions shortened', () => ev.counts.byRule.forEach(r => { if (typeof r.description === 'string') r.description = r.description.slice(0, 40); })],
+        ['counts cut to the top 3 rules, 3 agents and 3 IPs', () => { ev.counts.byRule = cut(ev.counts.byRule, 3); ev.counts.byAgent = cut(ev.counts.byAgent, 3); ev.counts.bySourceIp = cut(ev.counts.bySourceIp, 3); }],
+        ['week-earlier comparison left out of the rule list', () => { if (ev.comparison) { ev.comparison.byRule = []; ev.comparison.notSeenThisWindow = []; } }],
+        ['severity breakdown and technique list left out', () => { ev.counts.bySeverity = []; ev.mitreTechniques = []; }]
+    ];
+    for (const [label, apply] of steps) {
+        if (size() <= maxChars) break;
+        apply();
+        trimmed.push(label);
+    }
+    if (trimmed.length) ev.trimmed = trimmed;
+    return { evidence: ev, trimmed };
+}

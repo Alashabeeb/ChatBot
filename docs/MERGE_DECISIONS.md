@@ -285,3 +285,13 @@ The checker can't see the inflated count in the Phase 4 run (its capture has no 
 | E6 | **`backend/scripts/findRun.js`** (read-only): find a run by question text or request ID and show its searches, every claim verification dropped and why, and the answer. | Step one of turning a bad answer into a test (`docs/ADDING_TEST_CASES.md`); before this it needed hand-written SQL. |
 | E7 | **`docs/WORKING_TOGETHER.md` says "branches for work, `main` for production",** as the plan asked, and notes that this consolidation was done directly on `main` at your request. | The going-forward rule, without rewriting how we got here. |
 
+## After Phase 8: production feedback (2026-10-12)
+
+| # | Decision | Why |
+|---|---|---|
+| R1 | **The report request has a hard size limit** (`REPORT_PROMPT_MAX_CHARS`, 16,000) **and the answer a token cap** (`LLM_REPORT_MAX_TOKENS`, 1,000). Over the limit, evidence is trimmed in a fixed order (examples, then lists) and the run record and the model are told what was trimmed. | F-70. Volume must never decide whether the model can answer. Verification keeps using the full evidence, so trimming can't make a true statement unverifiable. |
+| R2 | **Examples: 10 per search whenever counts come from the aggregation, even approximate ones; compact JSON; the report sees the last two chat turns only, cut to 1,000 characters.** | F-70. Approximate counts still cover every match, so more examples add nothing. Indentation was about 40% of the evidence. The report needs the evidence, not the conversation. |
+| R3 | **"The N most recent logs" is answered by the code** with a table of those records, newest first across searches, capped at 100; no model call. Recognised only with a recency word ("most recent", "latest", "newest", "last 10"); "top 20 alerts" and time windows are not listings. | F-68. A list is data, not analysis; the code can give it exactly and it can't fail for size. It scores 81.2 on the analysis standard (it has no counts per rule or techniques by design); that is its gate baseline. |
+| R4 | **The gate compares each mode's mean over the cases the baseline already holds;** a new case is reported as new and joins the baseline through `--update`. | Adding a case is not a regression. Per-case thresholds apply from the moment it is recorded. |
+| R5 | **The live search stage is shown inside the assistant message** (`ChatMessage` `status`), aligned with the answer. | Reported from production: the stage line sat at the card's left edge. |
+

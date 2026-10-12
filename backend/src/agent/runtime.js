@@ -9,12 +9,13 @@ import { LLM_STREAM_IDLE_TIMEOUT_MS } from '../config/env.js';
 import { modelFor } from '../llm/models.js';
 import { LLM_REPORT_TIMEOUT_MS } from '../config/env.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
-import { buildEvidenceIndex, evidenceForModel } from './evidenceIndex.js';
+import { buildEvidenceIndex, evidenceForModel, fitEvidenceToBudget } from './evidenceIndex.js';
+import { listingRequest } from './listing.js';
 import { applySeverityFloor, rightNowMinSeverity } from './severityFloor.js';
 import { storeEvidence } from './evidenceCache.js';
 import { clarificationFor, priorClarification, CLARIFICATION_LEAD } from './clarify.js';
 import {
-    parseClaims, verifyClaims, renderGroundedReport, renderInsufficient, renderNoResults, renderSearchFailed, renderEvidenceSummary, renderHeader
+    parseClaims, verifyClaims, renderGroundedReport, renderInsufficient, renderNoResults, renderSearchFailed, renderEvidenceSummary, renderHeader, renderRecentRecords
 } from './grounding.js';
 
 // Central Tool Registration
@@ -59,6 +60,7 @@ export const REPORT_SOURCE = {
     UNVERIFIABLE: 'fallback_unverifiable',
     STOPPED: 'stopped',
     INSUFFICIENT_EVIDENCE: 'insufficient_evidence',
+    RECENT_RECORDS: 'template_recent_records',
     NO_RESULTS_TEMPLATE: 'template_no_results',
     SEARCH_FAILED: 'template_search_failed'
 };
@@ -72,6 +74,7 @@ function buildFooter(reportSource, plannerSource, durationMs, droppedClaims = 0,
         [REPORT_SOURCE.UNVERIFIABLE]: 'Model answer not verifiable: not shown',
         [REPORT_SOURCE.STOPPED]: 'Stopped before the analysis finished',
         [REPORT_SOURCE.INSUFFICIENT_EVIDENCE]: 'No model analysis: not enough evidence',
+        [REPORT_SOURCE.RECENT_RECORDS]: 'Records listed by the system: no model analysis',
         [REPORT_SOURCE.NO_RESULTS_TEMPLATE]: 'No model analysis: no matching data',
         [REPORT_SOURCE.SEARCH_FAILED]: 'No model analysis: search failed'
     }[reportSource];
@@ -83,6 +86,23 @@ function buildFooter(reportSource, plannerSource, durationMs, droppedClaims = 0,
         fixture_replay: ' | Plan: replayed from fixture'
     }[plannerSource] ?? '';
     return `${report}${removed}${plan} | Runtime: ${durationMs}ms`;
+}
+
+/** Size limits for the report request (read per request, so they can be tuned without code changes). */
+const positiveSetting = (name, fallback) => {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+/** Total characters sent to the report model: system prompt, history and evidence (default 16,000, about 5,000 tokens). */
+const reportPromptMaxChars = () => positiveSetting('REPORT_PROMPT_MAX_CHARS', 16000);
+/** The longest report the model may write, in tokens (default 1,000), so request and answer fit together. */
+const reportMaxTokens = () => positiveSetting('LLM_REPORT_MAX_TOKENS', 1000);
+/** The report needs the evidence, not the conversation: the last two turns at most, each shortened. */
+function boundedReportHistory(history = []) {
+    return (Array.isArray(history) ? history : [])
+        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .slice(-2)
+        .map(m => ({ role: m.role, content: m.content.length > 1000 ? `${m.content.slice(0, 997)}...` : m.content }));
 }
 
 /** The models this run uses, by role (Phase 6). Names only, never URLs or keys. */
@@ -469,6 +489,7 @@ async function runPipeline(run, text, history, options = {}) {
     // ==========================================
     const reasonStart = Date.now();
     const index = buildEvidenceIndex(inPlanOrder);
+    const listing = listingRequest(question);
     let finalSummary = '';
     let reportSource;
     const followUpLine = followUp
@@ -485,10 +506,22 @@ async function runPipeline(run, text, history, options = {}) {
     } else if (totalHits === 0 && !hasOtherEvidence && (structuredEvidence.summary.successful > 0 || sourceAbsent)) {
         finalSummary = renderNoResults(index);
         reportSource = REPORT_SOURCE.NO_RESULTS_TEMPLATE;
+    } else if (listing && totalHits > 0 && index.anySearchSucceeded) {
+        // "The N most recent logs": listed by the code from the records retrieved (F-68).
+        finalSummary = renderRecentRecords(index, listing.count);
+        reportSource = REPORT_SOURCE.RECENT_RECORDS;
     } else {
-        const modelEvidence = evidenceForModel(index);
-        const reasoningPrompt = `User Request: "${question}"\n\nEvidence JSON:\n${JSON.stringify(modelEvidence, null, 2)}`;
-        telemetry.reportPromptChars = reasoningPrompt.length + SYSTEM_PROMPTS.AGENT_REASONING_PROMPT.length;
+        // Keep the request within what the model accepts, whatever the volume (fixes 2-4): compact JSON,
+        // at most the last two chat turns, shortened, and a hard size limit that trims the evidence.
+        const reportHistory = boundedReportHistory(context.conversationHistory);
+        const fixedChars = SYSTEM_PROMPTS.AGENT_REASONING_PROMPT.length + reportHistory.reduce((n, m) => n + m.content.length, 0)
+            + `User Request: "${question}"\n\nEvidence JSON:\n`.length;
+        const fitted = fitEvidenceToBudget(evidenceForModel(index), reportPromptMaxChars() - fixedChars);
+        const modelEvidence = fitted.evidence;
+        const reasoningPrompt = `User Request: "${question}"\n\nEvidence JSON:\n${JSON.stringify(modelEvidence)}`;
+        telemetry.reportPromptChars = fixedChars - `User Request: "${question}"\n\nEvidence JSON:\n`.length + reasoningPrompt.length;
+        telemetry.reportPromptTrimmed = fitted.trimmed;
+        if (fitted.trimmed.length) runLog.info(`[Report] Evidence trimmed to fit ${reportPromptMaxChars()} characters: ${fitted.trimmed.join('; ')}`);
         emit('stage', { stage: 'analysing', label: `${modelFor('report').model} is analysing ${index.totalMatches.toLocaleString('en-US')} ${index.totalMatches === 1 ? 'match' : 'matches'}` });
         const modelStart = Date.now();
         let rawReport = null;
@@ -510,7 +543,8 @@ async function runPipeline(run, text, history, options = {}) {
             });
             try {
                 const result = await streamChatCompletion({
-                    messages: buildModelMessages(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, context.conversationHistory),
+                    messages: buildModelMessages(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, reportHistory),
+                    maxTokens: reportMaxTokens(),
                     role: 'report',
                     signal: options.signal,
                     firstTokenTimeoutMs: LLM_REPORT_TIMEOUT_MS,
@@ -525,7 +559,7 @@ async function runPipeline(run, text, history, options = {}) {
                 runLog.warn(`[Report] Model stream ${stopped ? 'stopped by the client' : `failed (${error.code})`}: ${error.message}`);
             }
         } else {
-            rawReport = await askFoundation(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, context.conversationHistory, { timeout: LLM_REPORT_TIMEOUT_MS, role: 'report' });
+            rawReport = await askFoundation(reasoningPrompt, SYSTEM_PROMPTS.AGENT_REASONING_PROMPT, reportHistory, { timeout: LLM_REPORT_TIMEOUT_MS, role: 'report', maxTokens: reportMaxTokens() });
         }
         telemetry.reasoningDuration = Date.now() - modelStart;
         emit('stage', { stage: 'verifying', label: 'Checking every statement against the evidence' });

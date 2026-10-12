@@ -54,6 +54,12 @@ test('a score below the baseline fails the gate, per case and on average', { ski
     assert.match(run.stdout, /faithful: mean 97\.5 < baseline 100/);
 });
 
+test('a new case (not yet in the baseline) is reported but does not count as a drop', { skip }, () => {
+    const run = runGate([...GOOD, result('SYNTHETIC-pipeline-faithful--b.json', { score: 81.2 })]);
+    assert.equal(run.status, 0, run.stdout);
+    assert.match(run.stdout, /new case faithful\/b: score 81\.2 \(not in the baseline yet; run --update to add it\)/);
+});
+
 test('a case in the baseline that is missing from the results fails the gate', { skip }, () => {
     const run = runGate([GOOD[0], GOOD[2]]);
     assert.equal(run.status, 1);

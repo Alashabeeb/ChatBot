@@ -161,6 +161,8 @@ cd $REPO; git checkout c0e2010; npm ci; cd backend; npm ci
 
 **Models per role (Phase 6), all optional:** `PLANNER_LLM_API_URL`, `PLANNER_LLM_MODEL`, `PLANNER_LLM_API_KEY` and `REPORT_LLM_API_URL`, `REPORT_LLM_MODEL`, `REPORT_LLM_API_KEY` send the planner or the report to another OpenAI-compatible model. `LLM_MODEL` and `LLM_API_KEY` set the default's name and key. **Leave them unset to keep today's behaviour:** everything goes to `LLM_API_URL` as `foundation-sec-8b-instruct`. A role with its own URL never receives the default's key.
 
+**Report request size:** `REPORT_PROMPT_MAX_CHARS` (16000) is the most the answer-writing step sends the model: system prompt, the last two chat turns (each cut to 1,000 characters) and the evidence, sent as compact JSON. Over the limit, the evidence is trimmed (example records first, then the lists) and the run record lists what was trimmed. `LLM_REPORT_MAX_TOKENS` (1000) caps the answer. Roughly 3 characters make a token, so the defaults fit a model limited to 8,192 tokens; for a 4,096-token model, set `REPORT_PROMPT_MAX_CHARS=8000` and `LLM_REPORT_MAX_TOKENS=700`.
+
 **Follow-ups:** `FOLLOW_UP_TTL_MS` (7200000, i.e. 2 hours) and `FOLLOW_UP_MAX_ENTRIES` (50): how long, and for how many searches, the evidence is kept in memory for follow-up questions. A restart forgets it; the next follow-up simply searches again.
 
 **"Right now" questions:** `RIGHT_NOW_MIN_SEVERITY` (7). A question containing "right now", "currently", "at the moment" and similar searches only `rule.level` at or above this, unless the analyst asked for a level. `0` turns it off.
