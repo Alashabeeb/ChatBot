@@ -147,7 +147,8 @@ test('what the model receives: honest system prompt with today\'s date, sanitize
     assert.match(system.content, /you cannot see the organisation's Wazuh, OpenSearch or firewall data/i, 'the model is told it cannot see live security data');
     assert.match(system.content, /Never invent alerts, counts, IP addresses, hostnames, usernames or log entries/);
     assert.match(system.content, /never say you have checked a system/i);
-    assert.match(system.content, /suggest turning on "Search Wazuh"/);
+    assert.match(system.content, /suggest the "Search Wazuh for this" button/);
+    assert.doesNotMatch(system.content, /turning on/i, 'there is no toggle to turn on');
     assert.deepEqual(rest, [
         { role: 'user', content: 'earlier question' },
         { role: 'assistant', content: 'earlier answer' },

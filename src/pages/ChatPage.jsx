@@ -37,7 +37,7 @@ const INITIAL_MESSAGES = [
     role: 'assistant',
     type: 'text',
     isWelcome: true,
-    text: 'Welcome to SOC ChatBot. Ask me anything, from drafting an email to explaining a log line or writing a script.\n\nTurn on **Search Wazuh** to query your live Wazuh and firewall telemetry: agent status, recent alerts, authentication failures, firewall activity or CVE vulnerabilities.',
+    text: 'Welcome to SOC ChatBot. Ask me anything, from drafting an email to explaining a log line or writing a script.',
     timestamp: new Date().toISOString()
   }
 ];

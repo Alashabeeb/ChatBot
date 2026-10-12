@@ -66,4 +66,5 @@ test('the page has no Search Wazuh toggle: every message goes to /api/chat/messa
   assert.match(page, /\/api\/chat\/message/);
   assert.doesNotMatch(page, /\/api\/chat\/stream'|\/api\/chat\/search\/stream/);
   assert.match(page, /force_route: forceSearch \? 'search' : undefined/, '"Search Wazuh for this" still forces a search');
+  assert.doesNotMatch(page, /Turn on \*\*Search Wazuh\*\*/i, 'the welcome message does not mention the removed toggle');
 });
