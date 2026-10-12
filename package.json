@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test src/lib/*.test.js"
+    "test": "node --test src/lib/*.test.js",
+    "gate": "python3 evals/gate.py",
+    "release": "npm test && npm --prefix backend test && python3 evals/gate.py && vite build"
   },
   "dependencies": {
     "framer-motion": "^12.42.2",

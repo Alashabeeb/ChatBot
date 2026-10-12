@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-10-12T09:34:09+00:00",
+  "note": "Release gate baseline. Written by evals/gate.py --update; review the diff like code. Scores may only go down with an explained reason in docs/MERGE_DECISIONS.md.",
+  "cases": {
+    "pipeline/adversarial/ad-servers-firewall-down": 100.0,
+    "pipeline/adversarial/failed-logons-today-empty": 100.0,
+    "pipeline/adversarial/right-now-sampled": 100.0,
+    "pipeline/adversarial/right-now-sampled-pre-phase5": 100.0,
+    "pipeline/adversarial/top-alerts-week": 100.0,
+    "pipeline/faithful/ad-servers-firewall-down": 100.0,
+    "pipeline/faithful/failed-logons-today-empty": 100.0,
+    "pipeline/faithful/right-now-sampled": 100.0,
+    "pipeline/faithful/right-now-sampled-pre-phase5": 100.0,
+    "pipeline/faithful/top-alerts-week": 100.0
+  },
+  "means": {
+    "adversarial": 100.0,
+    "faithful": 100.0
+  }
+}

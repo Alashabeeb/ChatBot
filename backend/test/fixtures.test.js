@@ -513,3 +513,37 @@ test('replay CLI --out writes one baseline record per question: captured answer 
     assert.ok(!('synthetic' in record));
     assert.ok(fs.existsSync(path.join(outDir, 'manifest.json')));
 });
+
+test('findRun is read-only and shows what is needed to turn a bad answer into a test', async (t) => {
+    // A real run record, written by the real pipeline into a file database.
+    const dbPath = path.join(tmpDir, 'findrun.db');
+    const child = spawnSync(process.execPath, ['-e', `
+        process.env.SOC_DB_PATH = ${JSON.stringify(dbPath)};
+        const { initDatabase, default: db } = await import(${JSON.stringify(path.join(backendDir, 'src/config/db.js'))});
+        const { RunModel } = await import(${JSON.stringify(path.join(backendDir, 'src/models/Run.js'))});
+        initDatabase();
+        RunModel.start({ requestId: 'req-abc', userId: 'user_admin_root', instanceId: 'i1', question: 'show me failed logons today', startedAt: '2026-10-12T08:00:00.000Z' });
+        RunModel.finish('req-abc', { status: 'completed', planner: { source: 'model', tools: [] }, tools: [{ tool: 'searchSecurityLogs', totalHits: 3 }],
+            reportText: 'The answer.', timings: { totalDuration: 5 }, errors: [], modelGenerated: true,
+            generation: { planner: 'model', report: 'model', model: 'm' },
+            grounding: { claims: 2, shown: 1, dropped: [{ section: 'findings', text: 'From 10.9.9.9.', reason: 'IP 10.9.9.9 is not in the evidence' }] },
+            completedAt: '2026-10-12T08:00:05.000Z' });
+        db.close();
+    `], { encoding: 'utf8', env: { ...process.env, JWT_SECRET: 'x'.repeat(40) }, input: '' });
+    assert.equal(child.status, 0, child.stderr);
+    const hash = () => crypto.createHash('sha256').update(fs.readFileSync(dbPath)).digest('hex');
+    const before = hash();
+    const script = path.join(backendDir, 'scripts', 'findRun.js');
+
+    const byText = spawnSync(process.execPath, [script, '--db', dbPath, '--search', 'failed logons'], { encoding: 'utf8' });
+    assert.equal(byText.status, 0, byText.stderr);
+    assert.match(byText.stdout, /req-abc .*show me failed logons today/);
+
+    const byId = spawnSync(process.execPath, [script, '--db', dbPath, '--request-id', 'req-abc'], { encoding: 'utf8' });
+    assert.equal(byId.status, 0, byId.stderr);
+    for (const expected of [/question: show me failed logons today/, /report: model/, /The answer\./, /dropped \(1\)/, /IP 10\.9\.9\.9 is not in the evidence/, /searchSecurityLogs/]) {
+        assert.match(byId.stdout, expected);
+    }
+    assert.equal(hash(), before, 'database file must be unchanged');
+    assert.equal(spawnSync(process.execPath, [script, '--db', dbPath, '--request-id', 'nope'], { encoding: 'utf8' }).status, 2);
+});

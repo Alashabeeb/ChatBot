@@ -273,3 +273,15 @@ The checker can't see the inflated count in the Phase 4 run (its capture has no 
 
 **Mutation checks:** 14 Phase 7 mutants, all killed (two needed new tests: insufficient evidence while streaming, and the report model on the streamed path).
 
+## Phase 8: Keep it good (2026-10-12)
+
+| # | Decision | Why |
+|---|---|---|
+| E1 | **⚠ The release gate runs in CI** (`.github/workflows/release-gate.yml`: backend and frontend tests, the build, `evals/gate.py`) **and in `npm run release`, not in `npm run build`.** | "The build fails" if the score drops or a fabrication gets through: in CI, every push and pull request to `main` is that build. `npm run build` is also how the Windows host builds the frontend, which may not have Python; gating it there would stop a deploy of already-gated code. Say if you want `build` itself gated. |
+| E2 | **⚠ CI uses Node 22 (LTS) and Python 3.12**; the Mac runs Node 26. | LTS on the runner; nothing in the code needs 26. Not yet run: the first push shows it. |
+| E3 | **What the gate fails on:** a checker self-test mismatch; any fabrication or hard-check failure in the pipeline evaluation (faithful and adversarial stub models); any case below its score in `evals/gate_baseline.json`, or a mode's mean below its baseline; a baseline case missing; and the legacy pass-through showing no fabrications (the evaluation would have gone blind). With `--real <dir>`, also any fabrication in a real replayed answer, or a question below its recorded score. | Requested: score drops and fabrications. The blindness check stops the gate passing because the checker stopped seeing anything. Every rule is mutation-checked (8 of 8). |
+| E4 | **Scores only go up through `gate.py --update`,** which refuses to record a baseline that breaks the absolute rules; the baseline diff is reviewed like code, and a lower score needs a written reason here. | Otherwise "the score dropped" could be fixed by lowering the bar. |
+| E5 | **Real fixtures join the gate once there is a baseline and an approved model** (`gate.py --real`, after `replayFixtures.js --allow-model`); CI can't do this, since it has neither real data nor a model. | The synthetic gate guards the code; the real one guards production quality, and runs where the data is. |
+| E6 | **`backend/scripts/findRun.js`** (read-only): find a run by question text or request ID and show its searches, every claim verification dropped and why, and the answer. | Step one of turning a bad answer into a test (`docs/ADDING_TEST_CASES.md`); before this it needed hand-written SQL. |
+| E7 | **`docs/WORKING_TOGETHER.md` says "branches for work, `main` for production",** as the plan asked, and notes that this consolidation was done directly on `main` at your request. | The going-forward rule, without rewriting how we got here. |
+

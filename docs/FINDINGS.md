@@ -13,6 +13,7 @@ Opened 2026-09-16; all fixes and findings live in this repository on `main` sinc
 - **Phase 5 (2026-10-12):** exact counts by aggregation, week-on-week comparison, severity floor for "right now", per-stage timings. F-14 and F-63 fixed where aggregations are available. New: F-64.
 - **Phase 6 (2026-10-12):** planner and report models configurable separately (default unchanged); `evals/compare_models.py`. No external model called. New: F-65.
 - **Phase 7 (2026-10-12):** streamed search answers (verified text only), follow-ups on the previous evidence, one clarifying question. New: F-66.
+- **Phase 8 (2026-10-12):** release gate (CI and `npm run gate`); `docs/STATUS.md` is now the place to see what's open. F-19 closed.
 - **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
@@ -113,7 +114,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 
 ### Model output integrity
 
-**F-02: Model failures are silent to the analyst.**
+**F-02: Model failures are silent to the analyst.** *Partly addressed:* report failures are now visible in the answer ("Model unavailable", "couldn't be verified", Phase 4); a planner fallback still shows only in the footer, which the UI doesn't display (F-21b).
 - **Where:** `backend/src/llm/foundation.js:25–28`, `backend/src/agent/planner.js:38–41`.
 - **Problem:** every error becomes `null` or a quiet switch to the legacy planner, with only a `console.warn`.
 - **Partly addressed by F-01:** the response now flags a rule-based plan and a report the model didn't write. The actual error (timeout, HTTP status, bad JSON) still isn't passed on or recorded anywhere except the console.
@@ -186,7 +187,7 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 
 **F-18: The README is stale.** It describes a `server/server.js` backend. The real code is in `backend/src/`, which also adds an agent, memory and login.
 
-**F-19: No test infrastructure existed before 2026-09-16.** The backend now has `npm test` (`node --test`). The frontend still has no tests.
+**F-19: No test infrastructure existed before 2026-09-16.** **CLOSED 2026-10-12 (Phase 8):** backend 171 tests, frontend 17, the answer checker's self-test, and a CI release gate on every push and pull request to `main`.
 
 ---
 
