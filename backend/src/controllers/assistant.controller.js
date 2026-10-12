@@ -40,6 +40,35 @@ export async function handleChatStream(req, res) {
 
     const userId = req.user?.id || 'default_user_1';
     const { history, dropped } = sanitizeChatHistory(req.body.history ?? []);
+    const { send, signal } = openEventStream(req, res);
+    await runChatStream({ text, history, dropped, userId, send, signal });
+    if (!res.writableEnded) res.end();
+}
+
+/**
+ * Opens a server-sent event stream. send(event, data) writes one event; signal aborts when the browser
+ * goes away (Stop, closed tab), so model requests can be cancelled.
+ */
+export function openEventStream(req, res) {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no'
+    });
+    const send = (event, data) => {
+        if (!res.writableEnded && !res.destroyed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const controller = new AbortController();
+    res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+    return { send, signal: controller.signal };
+}
+
+/**
+ * The general-chat answer, streamed into an open event stream (meta, token, error, done) and recorded
+ * as a run. route: the routing decision, when the assistant chose chat itself (POST /api/chat/message).
+ */
+export async function runChatStream({ text, history, dropped = 0, userId, send, signal, route = null }) {
     const requestId = randomUUID();
 
     return withRunScope(requestId, async () => {
@@ -51,21 +80,12 @@ export async function handleChatStream(req, res) {
             runLog.error(`[Run Record] Failed to create run record: ${error.message}`);
         }
 
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no'
-        });
-        const send = (event, data) => {
-            if (!res.writableEnded && !res.destroyed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-        };
-
         // If the browser goes away (Stop, closed tab), cancel the model request too.
         const upstream = new AbortController();
-        res.on('close', () => { if (!res.writableEnded) upstream.abort(); });
+        if (signal?.aborted) upstream.abort();
+        signal?.addEventListener('abort', () => upstream.abort(), { once: true });
 
-        send('meta', { request_id: requestId, mode: 'chat' });
+        send('meta', { request_id: requestId, mode: 'chat', ...(route ? { route } : {}) });
 
         let answer = '';
         let finishReason = null;
@@ -98,7 +118,7 @@ export async function handleChatStream(req, res) {
         const truncated = finishReason === 'length' || (Boolean(failure) && modelGenerated);
         const stopped = failure?.code === 'aborted';
         const report = stopped ? 'stopped' : !modelGenerated ? 'fallback_model_unavailable' : truncated ? 'model_truncated' : 'model';
-        const generation = { mode: 'chat', planner: null, report, model: modelFor('default').model };
+        const generation = { mode: 'chat', planner: null, report, model: modelFor('default').model, ...(route ? { route } : {}) };
 
         send('done', {
             request_id: requestId,
@@ -108,7 +128,6 @@ export async function handleChatStream(req, res) {
             finish_reason: finishReason,
             suggest_search: looksLikeDataQuestion(text)
         });
-        if (!res.writableEnded) res.end();
 
         try {
             RunModel.finish(requestId, {

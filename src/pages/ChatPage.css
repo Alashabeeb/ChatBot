@@ -394,35 +394,9 @@
 .composer-tools {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   padding: 0 14px 10px;
-}
-
-.mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-primary);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--duration-fast);
-}
-
-.mode-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.mode-toggle.is-on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 
 .composer-hint {

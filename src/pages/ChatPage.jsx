@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings, Database, RefreshCw } from 'lucide-react';
+import { Send, Menu, Shield, LogOut, X, FileText, Square, Users, User, Settings, RefreshCw } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ChatMessage, { Markdown } from '../components/ChatMessage';
 import { labelRawLogs } from '../lib/rawLogs';
 import { streamChat, buildHistory, ChatHttpError } from '../lib/chatStream';
-import { applySearchEvent, lastSearchRequestId, startSearchMessage, isFollowUpAnswer } from '../lib/searchStream';
+import { lastSearchRequestId, isFollowUpAnswer } from '../lib/searchStream';
+import { startPendingMessage, applyMessageEvent } from '../lib/messageStream';
 import DataCard from '../components/DataCard';
 import ChartCard from '../components/ChartCard';
 import Sidebar from '../components/Sidebar';
@@ -48,10 +49,6 @@ export default function ChatPage({ currentUser, onLogout }) {
   const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  // 'chat' streams from the model; 'siem' runs the Search Wazuh pipeline. Remembered per browser.
-  const [searchWazuh, setSearchWazuh] = useState(() => {
-    try { return localStorage.getItem('soc_search_wazuh') === '1'; } catch { return false; }
-  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modalData, setModalData] = useState(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
@@ -70,10 +67,6 @@ export default function ChatPage({ currentUser, onLogout }) {
   const apiUrl = (path) => (window.location.hostname === 'localhost'
     ? `http://localhost:3002${path}`
     : `http://${window.location.hostname}:3002${path}`);
-
-  useEffect(() => {
-    try { localStorage.setItem('soc_search_wazuh', searchWazuh ? '1' : '0'); } catch { /* storage unavailable */ }
-  }, [searchWazuh]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('soc_auth_token');
@@ -149,75 +142,39 @@ export default function ChatPage({ currentUser, onLogout }) {
   }, [input]);
 
   /**
-   * Search Wazuh, streamed (Phase 7): the stage the backend is actually in, then the answer as it grows.
-   * Only verified text arrives. followUpOf lets a follow-up question reuse the previous search's evidence.
+   * Every message goes to POST /api/chat/message. The assistant decides whether it needs the Wazuh
+   * data; the reply streams as a chat answer or as a search answer (stages, then verified text).
+   * followUpOf lets a follow-up reuse the previous search's evidence; forceSearch is the
+   * "Search Wazuh for this" correction on a chat answer.
    */
-  async function streamSearchReply(id, text, history, signal, followUpOf) {
-    let msg = startSearchMessage(id, text);
+  async function streamReply(id, text, history, signal, { followUpOf = null, forceSearch = false } = {}) {
+    let msg = startPendingMessage(id, text);
     const update = (next) => {
       msg = next;
       setMessages(prev => prev.map(m => (m.id === id ? msg : m)));
     };
     try {
       await streamChat({
-        url: apiUrl('/api/chat/search/stream'),
+        url: apiUrl('/api/chat/message'),
         headers: getAuthHeaders(),
-        body: { text, history, follow_up_of: followUpOf },
+        body: { text, history, follow_up_of: followUpOf, force_route: forceSearch ? 'search' : undefined },
         signal,
-        onEvent: (event) => update(applySearchEvent(msg, event))
+        onEvent: (event) => update(applyMessageEvent(msg, event))
       });
-      if (msg.isStreaming) update({ ...msg, isStreaming: false, stageLabel: null, errorNotice: 'The search ended without an answer.' });
+      if (msg.isStreaming) update({ ...msg, isStreaming: false, stageLabel: null, errorNotice: 'The answer ended early.' });
     } catch (error) {
+      const failed = (text) => ({ id, role: 'assistant', type: 'text', text, isError: true, isStreaming: false });
       if (error.name === 'AbortError') {
-        update({ id, role: 'assistant', type: 'text', text: 'Search stopped.', isError: true, isStreaming: false });
+        // Keep a partial chat answer, marked stopped; otherwise say it was stopped.
+        update(msg.type === 'text' && msg.text ? { ...msg, isStreaming: false, stopped: true } : failed('Stopped.'));
       } else if (error instanceof ChatHttpError && (error.status === 401 || error.status === 403)) {
-        update({ id, role: 'assistant', type: 'text', text: 'Your session expired. Please log in again.', isError: true, isStreaming: false });
+        update(failed('Your session expired. Please log in again.'));
         onLogout();
       } else {
         const message = error instanceof ChatHttpError ? error.message : `Connection error: ${error.message}`;
-        update({ id, role: 'assistant', type: 'text', text: message, isError: true, isStreaming: false });
+        update(msg.type === 'text' && msg.text ? { ...msg, isStreaming: false, errorNotice: message } : failed(message));
       }
     }
-    return msg;
-  }
-
-  /**
-   * General chat: streams the model's answer into the assistant message `id` as it is generated.
-   * Returns the finished message.
-   */
-  async function streamAssistantReply(id, text, history, signal) {
-    let msg = { id, role: 'assistant', type: 'text', text: '', isStreaming: true, question: text, timestamp: new Date().toISOString() };
-    const update = (patch) => {
-      msg = { ...msg, ...patch };
-      setMessages(prev => prev.map(m => (m.id === id ? msg : m)));
-    };
-    try {
-      await streamChat({
-        url: apiUrl('/api/chat/stream'),
-        headers: getAuthHeaders(),
-        body: { text, history },
-        signal,
-        onEvent: ({ event, data }) => {
-          if (event === 'meta') update({ request_id: data.request_id });
-          else if (event === 'token') update({ text: msg.text + data.text });
-          else if (event === 'error') update({ errorNotice: data.message });
-          else if (event === 'done') update({ truncated: data.truncated, suggestSearch: data.suggest_search, modelGenerated: data.model_generated });
-        }
-      });
-      // Nothing generated at all: show the notice as the message itself.
-      if (!msg.text && msg.errorNotice) update({ text: msg.errorNotice, errorNotice: undefined, isError: true });
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        update(msg.text ? { stopped: true } : { text: 'Stopped before the model answered.', isError: true });
-      } else if (error instanceof ChatHttpError && (error.status === 401 || error.status === 403)) {
-        update({ text: 'Your session expired. Please log in again.', isError: true });
-        onLogout();
-      } else {
-        const message = error instanceof ChatHttpError ? error.message : `Connection error: ${error.message}`;
-        update(msg.text ? { errorNotice: message } : { text: message, isError: true });
-      }
-    }
-    update({ isStreaming: false });
     return msg;
   }
 
@@ -251,10 +208,9 @@ export default function ChatPage({ currentUser, onLogout }) {
   async function handleSend(overrideText, { forceSearch = false, fresh = false } = {}) {
     const text = (overrideText ?? input).trim();
     if (!text || isTyping) return;
-    const mode = forceSearch || searchWazuh ? 'siem' : 'chat';
     const history = buildHistory(messages);
     // A follow-up can reuse the previous search's evidence; "Search again" (fresh) always searches.
-    const followUpOf = mode === 'siem' && !fresh ? lastSearchRequestId(messages) : null;
+    const followUpOf = !fresh ? lastSearchRequestId(messages) : null;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -305,16 +261,9 @@ export default function ChatPage({ currentUser, onLogout }) {
     // Persist user message to DB
     saveMessageToDB(currentSessionId, userMsg);
 
-    let assistantMsg;
-    if (mode === 'chat') {
-      const id = 'msg_a_' + Date.now();
-      setMessages(prev => [...prev, { id, role: 'assistant', type: 'text', text: '', isStreaming: true, question: text }]);
-      assistantMsg = await streamAssistantReply(id, text, history, controller.signal);
-    } else {
-      const id = 'msg_a_' + Date.now();
-      setMessages(prev => [...prev, startSearchMessage(id, text)]);
-      assistantMsg = await streamSearchReply(id, text, history, controller.signal, followUpOf);
-    }
+    const id = 'msg_a_' + Date.now();
+    setMessages(prev => [...prev, startPendingMessage(id, text)]);
+    const assistantMsg = await streamReply(id, text, history, controller.signal, { followUpOf, forceSearch });
 
     setIsTyping(false);
     abortControllerRef.current = null;
@@ -536,6 +485,9 @@ export default function ChatPage({ currentUser, onLogout }) {
           <div className="chat-messages" ref={scrollRef} onScroll={handleMessagesScroll}>
             {messages.map((m, i) => (
               <div key={m.id || i}>
+                {m.type === 'pending' && (
+                  <ChatMessage message={{ role: 'assistant', text: '', isStreaming: true }} status={m.stageLabel || 'Thinking…'} />
+                )}
                 {m.type === 'text' && (
                   <ChatMessage message={m} onSearchWazuh={(question) => handleSend(question, { forceSearch: true })} />
                 )}
@@ -614,7 +566,7 @@ export default function ChatPage({ currentUser, onLogout }) {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder={searchWazuh ? 'Ask about your Wazuh and firewall data…' : 'Message SOC Assistant…'}
+                  placeholder="Ask anything: alerts, logs, agents, or a general question…"
                   className="composer-textarea"
                   aria-label="Message"
                 />
@@ -639,23 +591,11 @@ export default function ChatPage({ currentUser, onLogout }) {
                 )}
               </div>
               <div className="composer-tools">
-                <button
-                  type="button"
-                  className={`mode-toggle ${searchWazuh ? 'is-on' : ''}`}
-                  onClick={() => setSearchWazuh(v => !v)}
-                  aria-pressed={searchWazuh}
-                  title={searchWazuh ? 'Answers come from your Wazuh and firewall data. Click to switch to general chat.' : 'Search your live Wazuh and firewall data instead of general chat.'}
-                >
-                  <Database size={14} />
-                  Search Wazuh
-                </button>
                 <span className="composer-hint">Enter to send · Shift+Enter for a new line</span>
               </div>
             </div>
             <div className="composer-footer">
-              {searchWazuh
-                ? 'Answers are based on your Wazuh and firewall data. Verify critical alerts before acting.'
-                : 'SOC Assistant can make mistakes, and it cannot see your security data unless Search Wazuh is on.'}
+              SOC Assistant searches your Wazuh and firewall data when a question needs it. Verify critical findings before acting.
             </div>
           </div>
         </main>

@@ -20,7 +20,7 @@ All work now happens on `main`, so pulling it brings **everything** below, not j
 | **Chat history** | Clients can no longer inject system instructions (F-06) | none |
 | **Honesty** | Fallback answers are labelled as not model-generated (F-01) | none |
 | **Run logging** | Every question gets a run record and a request ID | **Database migration on first start** (adds `messages.request_id` and the `runs` table) |
-| **Assistant chat** | ChatGPT-style chat with streaming, plus a **Search Wazuh** toggle | **Frontend needs `npm ci`** (two new packages) |
+| **Assistant chat** | ChatGPT-style chat with streaming. The assistant decides per message whether to search Wazuh (no toggle) | **Frontend needs `npm ci`** (two new packages) |
 | **Scripts** | Backup, read-only DB report, audit, purge, capture/replay | none |
 | **Security updates** | `axios`, `express`, `proxy-addr`, `qs`, `body-parser` patched (`npm audit`: 0 issues) | **Backend needs `npm ci`** |
 | **No fake status** | "Encrypted session", "TLS 1.3", "System online", "Live Monitoring Active" and similar claims removed | none |
@@ -113,19 +113,19 @@ Log in again (everyone is logged out if the secret changed).
 
 Then:
 
-1. **Chat mode** (Search Wazuh off): ask `Write a two-line status update for the team`.
-   - **Pass:** the answer streams in word by word; it has a Copy button and no "Searched Wazuh" badge.
-2. **Chat mode, data question:** ask `show me failed logons today`.
-   - **Pass:** the answer says it hasn't searched your data and offers **Search Wazuh for this**. It must not invent numbers.
-3. Click **Search Wazuh for this**.
-   - **Pass:** an answer marked **Searched Wazuh**, with **View Full Details**.
+1. Ask `Write a two-line status update for the team`.
+   - **Pass:** a chat answer, streaming in word by word, with a Copy button and no "Searched Wazuh" badge. The assistant decided it needs no data.
+2. Ask `show me failed logons today`.
+   - **Pass:** the assistant searches by itself: progress stages, then an answer badged **Searched Wazuh** with **View Full Details**. There is no toggle to switch on.
+3. Ask `explain what a brute force attack is`.
+   - **Pass:** a chat answer (general knowledge, no search). If a chat answer looks like it needed your data, its **Search Wazuh for this** button runs the search.
 4. **Stop:** ask for something long and press the red stop button mid-answer.
    - **Pass:** the partial answer stays, marked "Stopped".
-5. Ask `Block the IP that attacked us most today`, with Search Wazuh **on**.
+5. Ask `Block the IP that attacked us most today`.
    - **Pass:** nothing claims an IP was blocked or added to a blocklist.
-6. Ask `Check the running processes on agent 001`, with Search Wazuh **on**.
+6. Ask `Check the running processes on agent 001`.
    - **Pass:** the answer says **process inspection is not available**. No process list, no `unknown_miner`.
-7. With Search Wazuh **on**, ask `what are the top alerts this week`.
+7. Ask `what are the top alerts this week`.
    - **Pass:** a progress line changes as the search runs; the "Searched: …" line appears before the rest of the answer; statements then appear one by one.
 8. Then ask `tell me more about` followed by a rule ID from that answer.
    - **Pass:** the answer opens with "Answered from the evidence of your previous search", carries a "From previous search" badge and a **Search again** button.
@@ -164,6 +164,8 @@ cd $REPO; git checkout c0e2010; npm ci; cd backend; npm ci
 **Report request size:** `REPORT_PROMPT_MAX_CHARS` (16000) is the most the answer-writing step sends the model: system prompt, the last two chat turns (each cut to 1,000 characters) and the evidence, sent as compact JSON. Over the limit, the evidence is trimmed (example records first, then the lists) and the run record lists what was trimmed. `LLM_REPORT_MAX_TOKENS` (1000) caps the answer. Roughly 3 characters make a token, so the defaults fit a model limited to 8,192 tokens; for a 4,096-token model, set `REPORT_PROMPT_MAX_CHARS=8000` and `LLM_REPORT_MAX_TOKENS=700`.
 
 **Planner request size:** `PLANNER_PROMPT_MAX_CHARS` (10000) and `LLM_PLANNER_MAX_TOKENS` (600). The planner gets the tool list as compact JSON, the last four chat messages (questions up to 500 characters, answers up to 300) and a shortened stored context; over the limit, stored context goes first, then history. For a 4,096-token model, set `PLANNER_PROMPT_MAX_CHARS=8000`.
+
+**Routing:** `ROUTER_TIMEOUT_MS` (8000). Clear messages are routed by rules, instantly; only unclear ones ask the model (one word, SEARCH or CHAT) within this time, else a safe default applies.
 
 **Follow-ups:** `FOLLOW_UP_TTL_MS` (7200000, i.e. 2 hours) and `FOLLOW_UP_MAX_ENTRIES` (50): how long, and for how many searches, the evidence is kept in memory for follow-up questions. A restart forgets it; the next follow-up simply searches again.
 

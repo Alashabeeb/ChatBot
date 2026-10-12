@@ -1,5 +1,6 @@
 import { processChatQuery } from '../services/chat.service.js';
 import { sanitizeChatHistory } from '../utils/history.util.js';
+import { openEventStream } from './assistant.controller.js';
 
 export async function handleChat(req, res) {
     const { text, history: rawHistory = [] } = req.body;
@@ -44,25 +45,22 @@ export async function handleSearchStream(req, res) {
     const { history, dropped } = sanitizeChatHistory(req.body?.history ?? []);
     if (dropped > 0) console.warn(`[Chat] Dropped ${dropped} history entr${dropped === 1 ? 'y' : 'ies'} with a disallowed role or malformed content (user ${userId}).`);
     const followUpOf = typeof req.body?.follow_up_of === 'string' ? req.body.follow_up_of : null;
+    const { send, signal } = openEventStream(req, res);
+    await runSearchStream({ text, history, userId, followUpOf, send, signal });
+    if (!res.writableEnded) res.end();
+}
 
-    res.writeHead(200, {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no'
-    });
-    const send = (event, data) => {
-        if (!res.writableEnded && !res.destroyed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-    const stop = new AbortController();
-    res.on('close', () => { if (!res.writableEnded) stop.abort(); });
-
+/**
+ * A Search Wazuh answer, streamed into an open event stream (meta, stage, report, error, done).
+ * route: the routing decision, when the assistant chose to search itself (POST /api/chat/message);
+ * the message is then searched even if it sounds conversational.
+ */
+export async function runSearchStream({ text, history, userId, followUpOf = null, send, signal, route = null }) {
     try {
-        const response = await processChatQuery(text, history, userId, { followUpOf, emit: send, signal: stop.signal });
+        const response = await processChatQuery(text, history, userId, { followUpOf, emit: send, signal, route, forceSearch: Boolean(route) });
         send('done', { response });
     } catch (error) {
         console.error(`${error.requestId ? `[req:${error.requestId}] ` : ''}Search stream error:`, error.message);
         send('error', { message: `System error: ${error.message}.`, request_id: error.requestId ?? null });
     }
-    if (!res.writableEnded) res.end();
 }

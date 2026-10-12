@@ -46,6 +46,27 @@ The browser talks to the backend, and the backend talks to the model — the sam
 - **Stop in the UI:** cancels the request to the model as well.
 - **Servers that ignore `stream: true`** and return plain JSON work too.
 
+## One box, the assistant decides (`POST /api/chat/message`)
+
+There is no Search Wazuh toggle. Every message goes to `POST /api/chat/message`, which decides whether
+it needs the organisation's data (`backend/src/services/router.service.js`):
+
+- **Rules first, instantly:** replies to a clarifying question, follow-ups to the last search, "the N most
+  recent logs", data questions (logs, alerts, agents, IPs, hosts with a time or "our", "what's going on
+  right now") go to search; greetings, writing tasks and general-knowledge questions ("explain…", "what
+  is…", "write…") go to chat; messages with no security subject go to chat.
+- **Only unclear messages ask the model**, with a one-word question (SEARCH or CHAT), a 3-token answer
+  and an 8-second limit (`ROUTER_TIMEOUT_MS`). While it decides, the page shows "Working out whether this
+  needs your Wazuh data". If the model can't answer: search when the message mentions security terms,
+  chat otherwise.
+- **The analyst can correct it:** a chat answer that looks like a data question keeps its **Search Wazuh
+  for this** button, which sends the same message with `force_route: 'search'`.
+- The stream starts with `meta { request_id, mode: 'chat' | 'search', route: { route, by, reason } }`,
+  then carries the chat events or the search events below. The decision is kept in the run record
+  (`generation.route`).
+
+The earlier endpoints (`/api/chat`, `/api/chat/stream`, `/api/chat/search/stream`) still work.
+
 ## Search Wazuh, streamed (`POST /api/chat/search/stream`, Phase 7)
 
 Search answers are verified before anyone sees them, so the model's raw tokens are never streamed.

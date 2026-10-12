@@ -27,6 +27,8 @@ export function isConversational(lowerText) {
  * options.followUpOf: request_id of the previous Search Wazuh answer in this conversation. When the
  * question is a follow-up to it (followUp.js), it is answered from that evidence without searching again.
  * options.emit / options.signal: stream the search (see handleSearchStream) and let the client stop it.
+ * options.forceSearch: the assistant already decided this needs a search (router.service.js); skip the
+ *   conversational shortcut. options.route: that decision, recorded with the run.
  */
 export async function processChatQuery(text, history = [], userId = 'default_user_1', options = {}) {
     const normalizedText = typeof text === 'string' ? text.trim() : '';
@@ -40,12 +42,12 @@ export async function processChatQuery(text, history = [], userId = 'default_use
     if (options.followUpOf) {
         const decision = followUpEvidence(normalizedText, options.followUpOf, userId);
         console.log(`[Chat] Follow-up of ${options.followUpOf}: ${decision.reuse ? 'reusing its evidence' : 'searching again'} (${decision.reason}).`);
-        if (decision.reuse) return await runAgentWorkflow(normalizedText, history, userId, { followUp: decision.entry, emit: options.emit, signal: options.signal });
+        if (decision.reuse) return await runAgentWorkflow(normalizedText, history, userId, { followUp: decision.entry, emit: options.emit, signal: options.signal, route: options.route });
     }
 
     const lowerText = normalizedText.toLowerCase();
     // A reply to a clarifying question ("yes", "the main one") belongs to that search, not to small talk.
-    if (!priorClarification(history) && isConversational(lowerText)) {
+    if (!options.forceSearch && !priorClarification(history) && isConversational(lowerText)) {
         // A single, short Foundation request keeps ordinary conversation responsive.
         // Sanitized here too, not only in the controller: scripts call this function directly.
         const { history: safeHistory } = sanitizeChatHistory(history);
@@ -67,5 +69,5 @@ export async function processChatQuery(text, history = [], userId = 'default_use
     // ==========================================
     // DELEGATE TO THE WAZUH + FIREWALL AGENT RUNTIME
     // ==========================================
-    return await runAgentWorkflow(normalizedText, history, userId, { emit: options.emit, signal: options.signal });
+    return await runAgentWorkflow(normalizedText, history, userId, { emit: options.emit, signal: options.signal, route: options.route });
 }

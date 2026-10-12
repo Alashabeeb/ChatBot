@@ -177,7 +177,8 @@ function finishRunRecord(run, status) {
             timings: run.telemetry,
             errors: currentRunErrors(),
             modelGenerated: run.modelGenerated,
-            generation: run.generation,
+            // The routing decision (POST /api/chat/message) is kept with the run, not sent back in generation.
+            generation: run.generation && run.route ? { ...run.generation, route: run.route } : run.generation,
             grounding: run.grounding,
             completedAt: new Date().toISOString()
         });
@@ -227,7 +228,8 @@ export async function runAgentWorkflow(text, history, userId = 'default_user_1',
 
         // Written before any work, so a run that never finishes (e.g. a hung model call) stays visible as 'running'.
         startRunRecord(run);
-        options.emit?.('meta', { request_id: requestId, mode: 'search' });
+        run.route = options.route ?? null;
+        options.emit?.('meta', { request_id: requestId, mode: 'search', ...(run.route ? { route: run.route } : {}) });
         try {
             const response = await runPipeline(run, text, history, options);
             finishRunRecord(run, 'completed');

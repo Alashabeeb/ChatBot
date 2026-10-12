@@ -72,7 +72,7 @@ test('the old fixed "Searching…" placeholder is gone: the stage shown is the o
     assert.doesNotMatch(text, /Searching Wazuh and firewall data…/);
     assert.doesNotMatch(text, /PendingSearch/);
   }
-  assert.match(files[0], /\/api\/chat\/search\/stream/);
+  assert.match(files[0], /\/api\/chat\/message/);
   // A follow-up answer searched nothing, so it must not carry the "Searched Wazuh" badge.
   assert.match(files[0], /isFollowUpAnswer\(m\) \? 'From previous search' : 'Searched Wazuh'/);
 });
