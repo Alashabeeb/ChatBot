@@ -47,7 +47,7 @@ Build the bundle. It contains only `package.json`, `package-lock.json`, `.gitign
 cd /Users/solomonalor/Documents/ChatBot && zip -r ~/Desktop/soc-capture-bundle.zip backend/package.json backend/package-lock.json backend/.gitignore backend/src backend/scripts -x '*.DS_Store'
 ```
 
-Expected: `adding: …` lines. The file `~/Desktop/soc-capture-bundle.zip` is about 90 KB (about 200 KB unpacked, 73 files).
+Expected: `adding: …` lines. The file `~/Desktop/soc-capture-bundle.zip` is about 110 KB (about 270 KB unpacked, 80 files).
 
 Transfer the zip to the Windows machine by your approved method. It contains code only, no secrets.
 
