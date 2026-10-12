@@ -74,10 +74,20 @@ async function main() {
                 for (const e of run.errors || []) {
                     if (/Fixture miss|FIXTURES=1/.test(e.message)) problems.push(e.message);
                 }
-                const recorded = fixture.calls.filter(c => c.kind === 'opensearch').map(c => canonicalJson(c.request)).sort();
-                const replayed = (run.tools || []).filter(t => t.tool === 'searchSecurityLogs' && t.query).map(t => canonicalJson(t.query)).sort();
+                // A search that failed at capture is replayed as the same failure, and only when the
+                // rebuilt query matches the recording exactly (anything else is a fixture miss, above).
+                // So successful searches are compared query by query, and failed ones by count.
+                const searches = fixture.calls.filter(c => c.kind === 'opensearch');
+                const recorded = searches.filter(c => !c.error).map(c => canonicalJson(c.request)).sort();
+                const recordedFailures = searches.filter(c => c.error).length;
+                const searchTools = (run.tools || []).filter(t => t.tool === 'searchSecurityLogs');
+                const replayed = searchTools.filter(t => t.success && t.query).map(t => canonicalJson(t.query)).sort();
+                const replayedFailures = searchTools.filter(t => !t.success && !/Fixture miss|FIXTURES=1/.test(t.error ?? '')).length;
                 if (canonicalJson(recorded) !== canonicalJson(replayed)) {
                     problems.push(`OpenSearch queries differ from capture (recorded ${recorded.length}, replayed ${replayed.length})`);
+                }
+                if (recordedFailures !== replayedFailures) {
+                    problems.push(`failed OpenSearch calls differ from capture (recorded ${recordedFailures}, replayed ${replayedFailures})`);
                 }
                 if (fixture.result?.totalHits !== null && fixture.result?.totalHits !== undefined && response.total_hits !== fixture.result.totalHits) {
                     problems.push(`total_hits ${response.total_hits} != captured ${fixture.result.totalHits}`);

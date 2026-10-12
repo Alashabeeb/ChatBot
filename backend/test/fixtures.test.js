@@ -355,6 +355,28 @@ test('backupDb: online backup while a writer holds uncheckpointed WAL changes; v
     }
 });
 
+test('replay CLI: a search that failed at capture and fails identically in replay counts as matched, not diverged', async (t) => {
+    const fixturesDir = path.join(tmpDir, 'failed-search');
+    const { file } = await capture(t, fixturesDir);
+    const fixture = listFixtureCalls(file);
+    const firewall = fixture.calls.find(c => c.kind === 'opensearch' && JSON.stringify(c.request.query.bool.must).includes('"iptables"'));
+    delete firewall.response;
+    firewall.error = { message: 'Request failed with status code 503', code: 'ERR_BAD_RESPONSE', status: 503, data: { error: 'unavailable' } };
+    fs.writeFileSync(file, JSON.stringify(fixture));
+
+    const env = { PATH: process.env.PATH, JWT_SECRET: 'baseline-test-secret-0123456789abcdefghijkl', OPENSEARCH_URL: 'http://opensearch.test', WAZUH_SERVER_API_URL: 'http://wazuh.test' };
+    const run = spawnSync(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', fixturesDir], { cwd: os.tmpdir(), env, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /1\/1 matched the capture/);
+
+    // A failed search whose query changed is still a divergence (a fixture miss, never a live call).
+    firewall.request.size = 999;
+    fs.writeFileSync(file, JSON.stringify(fixture));
+    const changed = spawnSync(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', fixturesDir], { cwd: os.tmpdir(), env, encoding: 'utf8' });
+    assert.equal(changed.status, 1, changed.stdout + changed.stderr);
+    assert.match(changed.stdout, /DIVERGED/);
+});
+
 test('replay refuses a SYNTHETIC case placed among real fixtures (synthetic cases are for the checker only)', async (t) => {
     const outDir = path.join(tmpDir, 'synthetic-guard');
     const { file } = await capture(t, outDir);
