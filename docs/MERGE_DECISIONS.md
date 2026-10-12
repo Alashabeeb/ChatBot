@@ -238,3 +238,19 @@ The checker can't see the inflated count in the Phase 4 run (its capture has no 
 
 **Tests changed in Phase 5:** fixture tests distinguish searches from aggregation requests (a capture now records both); the failed-search replay test removes the aggregation request a failed search would never have sent. Test helpers answer aggregation requests from `scripts/lib/fakeAggregations.js`, shared with the eval scenarios.
 
+## Phase 6: Model flexibility (2026-10-12)
+
+| # | Decision | Why |
+|---|---|---|
+| F1 | **Per-role settings** (`src/llm/models.js`): `PLANNER_LLM_*` and `REPORT_LLM_*` override URL, model name and key field by field; everything else (memory, conversation, chat) uses the default. With none set, every call goes to `LLM_API_URL` as `foundation-sec-8b-instruct`, as before. | Requested: separately configurable, current model as default, no production change. A test pins the unchanged defaults. |
+| F2 | **A key goes only to its own endpoint:** a role with its own URL uses its own key or none, never the default's. Keys are sent as a bearer header and never written to run records, fixtures or comparison output. | Otherwise pointing the report at another provider would quietly forward the production key to it. Mutation-checked. |
+| F3 | **Run records and responses name the models** (`generation.models: {planner, report}`; `model` stays the report model). The footer says "Planned by …" when the planner differs. Names only, never URLs. | Provenance for each answer once more than one model is in play. |
+| F4 | **`replayFixtures.js` disables every model URL by default,** not just `LLM_API_URL`. | Found while adding the roles: a `REPORT_LLM_API_URL` in `.env` would have got past the Phase 3 guard. Test-first. |
+| F5 | **`--live-planner` replay:** the configured planner is asked for the plan, while searches still come from the fixture; a different plan shows as `DIVERGED`, never as a live search. | Lets planners be compared without touching the SIEM. "Matched" then means the planner reproduced the captured searches. |
+| F6 | **`evals/compare_models.py`** replays every fixture per model (`--allow-model`) and scores each model's own answer (`check.py --answer replay`). Reported side by side: score, hard-check failures, fabrications shown, claims dropped and drop rate, format failures, model unavailable, model-call time (mean and max), prompt size, and planning time with `--live-planner`. | Requested. "Claims dropped" is the best fabrication signal for a model: with verification on, fabrications shown should always be 0, so what differs between models is how much they try to say without support. |
+| F7 | **Guards:** every model needs `approved_by` (the example's candidate is blank, so the example is refused as it stands); credentials can't be written into the config, only referenced by environment-variable name; synthetic cases are refused; `--dry-run` calls nothing; results go under gitignored `baseline/`. `evals/models.json` is gitignored. | "Don't call any external model until I supply an approved endpoint." All guards mutation-checked (11 mutants, all killed after two tests were added). |
+| F8 | **⚠ OpenAI-compatible endpoints only** (F-65). | That's the current model's API. Another API needs a small adapter or a gateway. |
+| F9 | **Not run against any real model.** | Ground rule. The tests use a local stand-in server only. The first real comparison needs the captured fixtures and an endpoint you approve. |
+
+**Tests changed in Phase 6:** `attribution` and `runRecord` expect the added `generation.models`; the replay no-model test now sets the per-role URLs too. New: `modelConfig.test.js` (5), `compareModels.test.js` (7), and the live-planner replay test.
+

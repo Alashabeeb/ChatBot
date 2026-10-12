@@ -152,6 +152,8 @@ cd $REPO; git checkout c0e2010; npm ci; cd backend; npm ci
 
 **Time limits for the other model calls**, in ms: `LLM_PLANNER_TIMEOUT_MS` (45000), `LLM_REPORT_TIMEOUT_MS` (120000), `LLM_MEMORY_TIMEOUT_MS` (45000), `LLM_CONVERSATION_TIMEOUT_MS` (60000), `LLM_DEFAULT_TIMEOUT_MS` (60000). Raise them if the model is slow but working; lower them to fail faster when it hangs.
 
+**Models per role (Phase 6), all optional:** `PLANNER_LLM_API_URL`, `PLANNER_LLM_MODEL`, `PLANNER_LLM_API_KEY` and `REPORT_LLM_API_URL`, `REPORT_LLM_MODEL`, `REPORT_LLM_API_KEY` send the planner or the report to another OpenAI-compatible model. `LLM_MODEL` and `LLM_API_KEY` set the default's name and key. **Leave them unset to keep today's behaviour:** everything goes to `LLM_API_URL` as `foundation-sec-8b-instruct`. A role with its own URL never receives the default's key.
+
 **"Right now" questions:** `RIGHT_NOW_MIN_SEVERITY` (7). A question containing "right now", "currently", "at the moment" and similar searches only `rule.level` at or above this, unless the analyst asked for a level. `0` turns it off.
 
 Defaults are in brackets.

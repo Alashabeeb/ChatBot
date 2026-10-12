@@ -11,6 +11,7 @@ Opened 2026-09-16; all fixes and findings live in this repository on `main` sinc
 - **Phase 3 (2026-10-12):** measurement harness (`evals/`). F-14 corrected (200 hits per search, not 10,000). F-47 closed (runbook rebuilt). Replay no longer reports a false divergence when a search failed at capture. New: F-61, F-62.
 - **Phase 4 (2026-10-12):** grounded answers: every claim cited and verified in code; reports open with sources and time window. F-62 fixed. New: F-63.
 - **Phase 5 (2026-10-12):** exact counts by aggregation, week-on-week comparison, severity floor for "right now", per-stage timings. F-14 and F-63 fixed where aggregations are available. New: F-64.
+- **Phase 6 (2026-10-12):** planner and report models configurable separately (default unchanged); `evals/compare_models.py`. No external model called. New: F-65.
 - **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
@@ -350,6 +351,10 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Where:** `backend/src/integrations/opensearch.integration.js` (`WINDOW_AGGS`).
 - **Problem:** `terms` aggregations need `rule.id`, `agent.name`, `data.srcip`, `data.win.eventdata.ipAddress`, `rule.level` and `rule.mitre.id` to be keyword or numeric fields. That's true of the standard Wazuh index template, but not verified against this deployment. If a field is `text`, OpenSearch rejects the request and every answer falls back to sample counts (logged as `[OpenSearch] Aggregation request failed`). Terms counts across shards can also carry an error bound; it's read and widens the accepted range rather than being ignored.
 - **Check:** the first Phase 5 capture shows it: aggregation calls with `response`, not `error`.
+
+**F-65: Only OpenAI-compatible chat-completion endpoints are supported.** Found in Phase 6.
+- **Where:** `backend/src/llm/foundation.js`, `backend/src/llm/streamChat.js`.
+- **Problem:** requests are `{model, messages}` with an optional bearer key, and replies are read from `choices[0].message.content`. An endpoint with a different API (for example a provider's native messages API, or a different auth header) needs a small adapter, or an OpenAI-compatible gateway in front of it.
 
 ## Run logging (added 2026-09-16)
 
