@@ -224,29 +224,49 @@ export function renderHeader(index) {
     return lines.join('\n');
 }
 
-/** A code-written summary of what was retrieved: counts only, nothing inferred. */
+/**
+ * "Summary of the results": what the search found, written by the code from the counts (used whenever
+ * no verified AI analysis is shown). Counts only, nothing inferred. Aggregated counts cover every
+ * match ("about" when OpenSearch reports them as approximate); without aggregations, counts come from
+ * the records returned, and the summary says so.
+ */
 export function renderEvidenceSummary(index) {
-    const lines = [];
-    // Aggregated counts cover every match; when OpenSearch reports an error bound they are approximate
-    // ("about"). Without aggregations, counts come from the records returned and are lower bounds.
     const n = value => value.toLocaleString('en-US');
-    const fmt = (bounds) => (bounds.min === bounds.max ? n(bounds.min) : `${index.allAggregated ? 'about' : 'at least'} ${n(bounds.min)}`);
-    const rules = topCounts(index.rules, 5);
-    if (rules.length) {
-        const sampled = !index.allAggregated && index.searches.some(s => !s.failed && !s.complete);
-        const label = index.allAggregated && !index.countsExact ? " (counted over every match; OpenSearch's counts are approximate)" : sampled ? ' in the most recent records retrieved' : '';
-        lines.push(`**Most frequent rules${label}:** ${rules.map(([id, b]) => `rule ${id}${index.ruleDescriptions.get(id) ? ` (${index.ruleDescriptions.get(id)})` : ''}: ${fmt(b)}`).join('; ')}.`);
+    const fmt = bounds => (bounds.min === bounds.max ? n(bounds.min) : `${index.allAggregated ? 'about' : 'at least'} ${n(bounds.min)}`);
+    const lines = [];
+
+    if (index.comparison) {
+        const { current, previous } = index.comparison.total;
+        const window = index.comparison.window;
+        if (previous === 0) lines.push(`- **Change:** no matches in ${window}; ${n(current)} now.`);
+        else if (current === previous) lines.push(`- **Change:** the same number of matches as ${window} (${n(current)}).`);
+        else {
+            const pct = Math.round((Math.abs(current - previous) / previous) * 100);
+            lines.push(`- **Change:** ${pct}% ${current < previous ? 'fewer' : 'more'} matches than ${window}.`);
+        }
     }
+    const rules = topCounts(index.rules, 3);
+    if (rules.length) lines.push(`- **Most frequent rules:** ${rules.map(([id, b]) => `${id}${index.ruleDescriptions.get(id) ? ` ${index.ruleDescriptions.get(id).trim()}` : ''} (${fmt(b)})`).join('; ')}.`);
     const agents = topCounts(index.agentCounts, 3);
-    if (agents.length) lines.push(`**Agents with the most records:** ${agents.map(([name, b]) => `${name}: ${fmt(b)}`).join('; ')}.`);
+    if (agents.length) lines.push(`- **Most active agents:** ${agents.map(([name, b]) => `${name} (${fmt(b)})`).join('; ')}.`);
     const ips = topCounts(index.ipCounts, 3);
-    if (ips.length) lines.push(`**Source IPs with the most records:** ${ips.map(([ip, b]) => `${ip}: ${fmt(b)}`).join('; ')}.`);
+    if (ips.length) lines.push(`- **Top source IPs:** ${ips.map(([ip, b]) => `${ip} (${fmt(b)})`).join('; ')}.`);
+    const levels = [...index.severityCounts.entries()].filter(([, count]) => count > 0).sort((a, b) => b[0] - a[0]);
+    if (levels.length) lines.push(`- **Highest severity:** level ${levels[0][0]} (${plural(levels[0][1], 'match', 'matches')}).`);
+    if (index.comparison) {
+        const fresh = [...index.comparison.byRule.entries()].filter(([, c]) => c.previous.max === 0 && c.current.min > 0)
+            .sort((a, b) => b[1].current.min - a[1].current.min).slice(0, 5).map(([id]) => id);
+        if (fresh.length) lines.push(`- **New this period:** rule${fresh.length > 1 ? 's' : ''} ${fresh.join(', ')} (not seen in ${index.comparison.window}).`);
+    }
     if (index.agents.length) {
         const statuses = new Map();
         for (const a of index.agents) statuses.set(a.status ?? 'unknown', (statuses.get(a.status ?? 'unknown') || 0) + 1);
-        lines.push(`**Agent status:** ${[...statuses.entries()].map(([status, n]) => `${status}: ${n}`).join('; ')}.`);
+        lines.push(`- **Agent status:** ${[...statuses.entries()].map(([status, count]) => `${status} ${count}`).join('; ')}.`);
     }
-    return lines.join('\n');
+    if (!index.allAggregated && index.searches.some(s => !s.failed && !s.complete)) {
+        lines.push('- **Counts** are from the most recent records retrieved, not from every match.');
+    }
+    return lines.length ? `**Summary of the results**\n${lines.join('\n')}` : '';
 }
 
 /** Renders verified claims under the code-written header. */
@@ -261,9 +281,16 @@ export function renderGroundedReport(index, kept) {
 }
 
 /** The answer when there is no basis for an analysis: the header, a plain statement, and the raw counts. */
-export function renderInsufficient(index, statement) {
-    const summary = renderEvidenceSummary(index);
-    return [renderHeader(index), statement, summary].filter(Boolean).join('\n\n');
+/** Lines that close an answer without verified AI analysis: say so plainly, once, at the end. */
+export const SUMMARY_NOTES = {
+    modelUnavailable: '_AI analysis is not included: the analysis model could not be reached. This summary is calculated directly from the search results._',
+    withheld: "_AI analysis is not included: the model's response could not be verified against the search results and was withheld. This summary is calculated directly from the search results._",
+    calculated: '_This summary is calculated directly from the search results._'
+};
+
+/** An answer without AI analysis: the header, an optional lead statement, the results summary, and the closing note. */
+export function renderInsufficient(index, statement, note = SUMMARY_NOTES.calculated) {
+    return [renderHeader(index), statement, renderEvidenceSummary(index), note].filter(Boolean).join('\n\n');
 }
 
 export function renderNoResults(index) {

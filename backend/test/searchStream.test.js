@@ -187,7 +187,7 @@ test('model down: the header still streams; the answer is the code-written fallb
     assert.match(reports(events)[0], /^\*\*Searched:\*\*/);
     const response = done(events);
     assert.equal(response.model_generated, false);
-    assert.match(response.summary, /Model unavailable/);
+    assert.match(response.summary, /AI analysis is not included: the analysis model could not be reached/);
     // The model server's own explanation is kept in the run record (for diagnosis), not shown to the analyst.
     const run = RunModel.findById(response.request_id);
     assert.ok(run.errors.some(e => e.stage === 'llm' && /HTTP 400.*maximum context length is 8192 tokens/.test(e.message)), JSON.stringify(run.errors));

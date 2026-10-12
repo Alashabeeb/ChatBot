@@ -163,7 +163,8 @@ export function buildEvidenceIndex(results) {
     const mitre = new Set([...records.flatMap(r => asList(get(r, ['rule', 'mitre', 'id']))), ...aggKeys('byMitre')].map(String));
     const levels = new Set([...records.map(r => get(r, ['rule', 'level'])), ...aggKeys('byLevel')].filter(l => typeof l === 'number'));
     const severityCounts = new Map();
-    if (countsExact) {
+    // Level counts from the aggregation cover every match, even when other counts are approximate.
+    if (okSearches.length > 0 && exactSearches.length === okSearches.length) {
         for (const s of exactSearches) for (const b of s.aggs.current.byLevel) severityCounts.set(b.key, (severityCounts.get(b.key) || 0) + b.count);
     } else {
         for (const [level, n] of countBy(records, r => get(r, ['rule', 'level']))) severityCounts.set(Number(level), n);

@@ -22,20 +22,28 @@ const window = error => ({
 
 test('counts from the aggregation are labelled as counted over every match, with thousands separators', () => {
     const summary = renderEvidenceSummary(buildEvidenceIndex([search({ available: true, current: window(0), previous: null })]));
-    assert.match(summary, /\*\*Most frequent rules:\*\* rule 60104 \(Windows audit failure event\): 1,386,641\./);
-    assert.match(summary, /gbb_portal_02: 2,360,911/);
-    assert.match(summary, /10\.128\.52\.36: 1,582,391/);
+    assert.match(summary, /- \*\*Most frequent rules:\*\* 60104 Windows audit failure event \(1,386,641\)\./);
+    assert.match(summary, /gbb_portal_02 \(2,360,911\)/);
+    assert.match(summary, /10\.128\.52\.36 \(1,582,391\)/);
     assert.doesNotMatch(summary, /most recent records retrieved|at least/);
 });
 
 test('approximate aggregation counts (OpenSearch error bound) say "about", never "in the records retrieved" or "at least"', () => {
     const summary = renderEvidenceSummary(buildEvidenceIndex([search({ available: true, current: window(12), previous: null })]));
-    assert.match(summary, /\*\*Most frequent rules \(counted over every match; OpenSearch's counts are approximate\):\*\* rule 60104 \(Windows audit failure event\): about 1,386,641\./);
-    assert.match(summary, /10\.128\.52\.36: about 1,582,391/);
+    assert.match(summary, /- \*\*Most frequent rules:\*\* 60104 Windows audit failure event \(about 1,386,641\)\./);
+    assert.match(summary, /10\.128\.52\.36 \(about 1,582,391\)/);
     assert.doesNotMatch(summary, /most recent records retrieved|at least/);
 });
 
 test('without aggregations, sample counts keep saying where they come from', () => {
     const summary = renderEvidenceSummary(buildEvidenceIndex([search({ available: false, error: 'boom' })]));
-    assert.match(summary, /\*\*Most frequent rules in the most recent records retrieved:\*\* rule 60104 \(Windows audit failure event\): at least 2\./);
+    assert.match(summary, /- \*\*Most frequent rules:\*\* 60104 Windows audit failure event \(at least 2\)\./);
+    assert.match(summary, /- \*\*Counts\*\* are from the most recent records retrieved, not from every match\./);
+});
+
+test('the highest severity comes from the aggregation too, even when its counts are approximate', () => {
+    const w = window(12);
+    w.byLevel = [{ key: 5, count: 5000000, error: 0 }, { key: 12, count: 310, error: 0 }];
+    const summary = renderEvidenceSummary(buildEvidenceIndex([search({ available: true, current: w, previous: null })]));
+    assert.match(summary, /- \*\*Highest severity:\*\* level 12 \(310 matches\)\./);
 });
