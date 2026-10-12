@@ -1,6 +1,7 @@
 import { test, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
+import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
@@ -311,17 +312,17 @@ test('dbReport is read-only: reports counts, date range and usernames without ch
     assert.ok(!fs.existsSync(path.join(tmpDir, 'nope.db')), 'must not create a database');
 });
 
-test('no source directory is named fixtures/ or quarantine/ (those names are gitignored everywhere)', () => {
+test('no source directory is named fixtures/, quarantine/ or baseline/ (those names are gitignored everywhere)', () => {
     const offenders = [];
     const walk = dir => {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
             if (!entry.isDirectory() || entry.name === 'node_modules') continue;
             const full = path.join(dir, entry.name);
-            if (entry.name === 'fixtures' || entry.name === 'quarantine') offenders.push(path.relative(backendDir, full));
+            if (['fixtures', 'quarantine', 'baseline'].includes(entry.name)) offenders.push(path.relative(backendDir, full));
             else walk(full);
         }
     };
-    for (const dir of ['src', 'scripts', 'test']) walk(path.join(backendDir, dir));
+    for (const dir of ['src', 'scripts', 'test', '../evals']) walk(path.join(backendDir, dir));
     assert.deepEqual(offenders, [], 'code in these directories would never be committed');
 });
 
@@ -352,4 +353,51 @@ test('backupDb: online backup while a writer holds uncheckpointed WAL changes; v
     } finally {
         writer.close();
     }
+});
+
+test('replay refuses a SYNTHETIC case placed among real fixtures (synthetic cases are for the checker only)', async (t) => {
+    const outDir = path.join(tmpDir, 'synthetic-guard');
+    const { file } = await capture(t, outDir);
+    const fixture = listFixtureCalls(file);
+    fs.writeFileSync(file, JSON.stringify({ ...fixture, synthetic: true }));
+    process.env.FIXTURES = '1';
+    process.env.FIXTURES_DIR = outDir;
+    const { loadFixtures } = await import('../src/recording/replay.js');
+    assert.throws(() => loadFixtures(), /SYNTHETIC/);
+});
+
+test('replay CLI --out writes one baseline record per question: captured answer and evidence, plus the replay verdict; no model call', async (t) => {
+    const fixturesDir = path.join(tmpDir, 'baseline-src');
+    const { file } = await capture(t, fixturesDir);
+    const fixture = listFixtureCalls(file);
+    const outDir = path.join(tmpDir, 'baseline-out');
+
+    // A model endpoint that is configured and reachable must still not be called.
+    let modelRequests = 0;
+    const model = http.createServer((req, res) => { modelRequests++; res.writeHead(500).end(); });
+    await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
+    t.after(() => model.close());
+    const env = {
+        PATH: process.env.PATH, JWT_SECRET: 'baseline-test-secret-0123456789abcdefghijkl', OPENSEARCH_URL: 'http://opensearch.test',
+        WAZUH_SERVER_API_URL: 'http://wazuh.test', LLM_API_URL: `http://127.0.0.1:${model.address().port}/v1/chat/completions`
+    };
+    const run = await new Promise(resolve => {
+        const child = spawn(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', fixturesDir, '--out', outDir], { cwd: os.tmpdir(), env });
+        let output = '';
+        child.stdout.on('data', d => { output += d; });
+        child.stderr.on('data', d => { output += d; });
+        child.on('close', status => resolve({ status, output }));
+    });
+    assert.equal(run.status, 0, run.output);
+    assert.equal(modelRequests, 0, 'replay must not call the model unless --allow-model is given');
+
+    const record = JSON.parse(fs.readFileSync(path.join(outDir, fixtureFileName(QUESTION)), 'utf8'));
+    assert.equal(record.question, QUESTION);
+    assert.equal(record.result.report, fixture.result.report, 'the baseline scores the answer production gave at capture');
+    assert.deepEqual(record.calls, fixture.calls, 'evidence is the captured evidence');
+    assert.equal(record.replay.status, 'matched');
+    assert.deepEqual(record.replay.problems, []);
+    assert.equal(record.replay.modelGenerated, false, 'no model is reachable in replay; the replayed report is the fallback');
+    assert.ok(!('synthetic' in record));
+    assert.ok(fs.existsSync(path.join(outDir, 'manifest.json')));
 });

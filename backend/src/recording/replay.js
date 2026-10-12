@@ -49,6 +49,9 @@ export function loadFixtures() {
         if (fixture.fixtureVersion !== FIXTURE_VERSION) {
             throw new FixtureMissError(`${name}: unsupported fixtureVersion ${fixture.fixtureVersion} (expected ${FIXTURE_VERSION})`);
         }
+        if (fixture.synthetic) {
+            throw new FixtureMissError(`${name} is a SYNTHETIC case (invented data for validating evals/check.py). It must never be replayed as a fixture; move it out of ${dir}.`);
+        }
         const key = normalizeQuestion(fixture.question);
         if (byQuestion.has(key)) {
             throw new FixtureMissError(`Two fixtures for the question "${fixture.question}": ${byQuestion.get(key).name} and ${name}`);

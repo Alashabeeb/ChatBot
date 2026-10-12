@@ -16,6 +16,8 @@ backend/data/
 # No leading slash, so these match at any depth (e.g. backend/fixtures/, backend/quarantine/).
 fixtures/
 quarantine/
+# Replayed baseline records (evals): real telemetry plus production answers, never commit.
+baseline/
 
 # Logs
 logs

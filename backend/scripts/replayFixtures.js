@@ -3,21 +3,37 @@
  * Replays captured fixtures through the pipeline with FIXTURES=1: the planner, OpenSearch and Wazuh
  * are served from the fixtures; no model planner call and no SIEM call is made. Runs from backend/:
  *
- *   node scripts/replayFixtures.js [--dir <fixtures dir>]
+ *   node scripts/replayFixtures.js [--dir <fixtures dir>] [--out <baseline dir>] [--allow-model]
  *
  * For each fixture it checks that every query built during replay was found in the recording and
- * that the hit count matches the capture. The report stage still calls LLM_API_URL if one is set;
- * without a reachable model the report is the "model unavailable" fallback.
+ * that the hit count matches the capture.
+ *
+ * --out <dir>     write one record per question: the captured evidence and the answer production gave
+ *                 at capture (result.report), plus this replay's verdict under "replay". Score the
+ *                 records with: python3 ../evals/check.py <dir>. They hold real telemetry: keep the
+ *                 directory out of git (baseline/ is gitignored).
+ * --allow-model   let the report stage call LLM_API_URL. Off by default: the model URL is replaced with
+ *                 an unreachable one, so even a backend/.env pointing at the live model is never called
+ *                 and the replayed report is the "model unavailable" fallback.
+ *
  * Uses a scratch database in the OS temp directory. Exit code 1 if any fixture diverged.
  */
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+const MODEL_DISABLED_URL = 'http://model-disabled-in-replay.invalid/v1/chat/completions';
+
 function parseArgs(argv) {
-    const args = { dir: null };
+    const args = { dir: null, out: null, allowModel: false };
     for (let i = 0; i < argv.length; i++) {
-        if (argv[i] === '--dir') args.dir = path.resolve(argv[++i]);
+        const next = () => {
+            if (i + 1 >= argv.length) throw new Error(`${argv[i]} needs a value`);
+            return path.resolve(argv[++i]);
+        };
+        if (argv[i] === '--dir') args.dir = next();
+        else if (argv[i] === '--out') args.out = next();
+        else if (argv[i] === '--allow-model') args.allowModel = true;
         else throw new Error(`Unknown argument: ${argv[i]}`);
     }
     return args;
@@ -27,6 +43,8 @@ async function main() {
     const args = parseArgs(process.argv.slice(2));
     process.env.FIXTURES = '1';
     if (args.dir) process.env.FIXTURES_DIR = args.dir;
+    // Set before config/env.js loads backend/.env: dotenv never overrides a variable already set.
+    if (!args.allowModel) process.env.LLM_API_URL = MODEL_DISABLED_URL;
     const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soc-replay-'));
     process.env.SOC_DB_PATH = path.join(scratchDir, 'replay.db');
 
@@ -39,7 +57,9 @@ async function main() {
     try {
         initDatabase();
         const fixtures = [...loadFixtures().values()];
-        console.log(`[Replay] ${fixtures.length} fixture(s) from ${fixturesDir()}`);
+        console.log(`[Replay] ${fixtures.length} fixture(s) from ${fixturesDir()}${args.allowModel ? ' (model calls allowed)' : ' (model calls disabled)'}`);
+        if (args.out) fs.mkdirSync(args.out, { recursive: true });
+        const manifest = [];
         let diverged = 0;
 
         for (const { name, fixture } of fixtures) {
@@ -67,6 +87,28 @@ async function main() {
             if (problems.length > 0) diverged++;
             console.log(`[Replay] ${problems.length ? 'DIVERGED' : 'OK      '} ${name} request_id=${requestId ?? '-'} hits=${response.total_hits ?? '-'} report=${run?.generation?.report ?? '-'}`);
             for (const p of problems) console.log(`           - ${p}`);
+
+            if (args.out) {
+                const record = {
+                    ...fixture,
+                    replay: {
+                        status: problems.length ? 'diverged' : 'matched',
+                        problems,
+                        replayedAt: new Date().toISOString(),
+                        requestId: requestId ?? null,
+                        modelAllowed: args.allowModel,
+                        report: run?.reportText ?? response.summary ?? response.text ?? null,
+                        modelGenerated: run?.modelGenerated ?? null,
+                        totalHits: response.total_hits ?? null
+                    }
+                };
+                fs.writeFileSync(path.join(args.out, name), JSON.stringify(record, null, 2) + '\n');
+                manifest.push({ file: name, question: fixture.question, replay: record.replay.status, capturedAt: fixture.capturedAt });
+            }
+        }
+        if (args.out) {
+            fs.writeFileSync(path.join(args.out, 'manifest.json'), JSON.stringify({ source: fixturesDir(), replayedAt: new Date().toISOString(), records: manifest }, null, 2) + '\n');
+            console.log(`[Replay] Baseline records written to ${args.out}. Score them with: python3 ../evals/check.py ${args.out}`);
         }
         console.log(`[Replay] ${fixtures.length - diverged}/${fixtures.length} matched the capture.`);
         return diverged > 0 ? 1 : 0;
