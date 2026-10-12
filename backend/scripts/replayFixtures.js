@@ -3,7 +3,7 @@
  * Replays captured fixtures through the pipeline with FIXTURES=1: the planner, OpenSearch and Wazuh
  * are served from the fixtures; no model planner call and no SIEM call is made. Runs from backend/:
  *
- *   node scripts/replayFixtures.js [--dir <fixtures dir>] [--out <baseline dir>] [--allow-model]
+ *   node scripts/replayFixtures.js [--dir <fixtures dir>] [--out <baseline dir>] [--allow-model [--live-planner]]
  *
  * For each fixture it checks that every query built during replay was found in the recording and
  * that the hit count matches the capture.
@@ -12,9 +12,15 @@
  *                 at capture (result.report), plus this replay's verdict under "replay". Score the
  *                 records with: python3 ../evals/check.py <dir>. They hold real telemetry: keep the
  *                 directory out of git (baseline/ is gitignored).
- * --allow-model   let the report stage call LLM_API_URL. Off by default: the model URL is replaced with
+ * --allow-model   let the report stage call its model (REPORT_LLM_API_URL, else LLM_API_URL). Off by
+ *                 default: every model URL (LLM_API_URL, PLANNER_ and REPORT_LLM_API_URL) is replaced with
  *                 an unreachable one, so even a backend/.env pointing at the live model is never called
  *                 and the replayed report is the "model unavailable" fallback.
+ *
+ * --live-planner  ask the configured planner model (PLANNER_LLM_API_URL, else LLM_API_URL) for the plan
+ *                 instead of replaying the captured one. Needs --allow-model. Searches are still served
+ *                 from the fixture: a plan that builds different searches shows as DIVERGED, never as a
+ *                 live search. Used by evals/compare_models.py.
  *
  * Uses a scratch database in the OS temp directory. Exit code 1 if any fixture diverged.
  */
@@ -25,7 +31,7 @@ import path from 'path';
 const MODEL_DISABLED_URL = 'http://model-disabled-in-replay.invalid/v1/chat/completions';
 
 function parseArgs(argv) {
-    const args = { dir: null, out: null, allowModel: false };
+    const args = { dir: null, out: null, allowModel: false, livePlanner: false };
     for (let i = 0; i < argv.length; i++) {
         const next = () => {
             if (i + 1 >= argv.length) throw new Error(`${argv[i]} needs a value`);
@@ -34,17 +40,22 @@ function parseArgs(argv) {
         if (argv[i] === '--dir') args.dir = next();
         else if (argv[i] === '--out') args.out = next();
         else if (argv[i] === '--allow-model') args.allowModel = true;
+        else if (argv[i] === '--live-planner') args.livePlanner = true;
         else throw new Error(`Unknown argument: ${argv[i]}`);
     }
+    if (args.livePlanner && !args.allowModel) throw new Error('--live-planner calls the planner model, so it needs --allow-model');
     return args;
 }
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
     process.env.FIXTURES = '1';
+    if (args.livePlanner) process.env.FIXTURES_LIVE_PLANNER = '1';
+    else delete process.env.FIXTURES_LIVE_PLANNER;
     if (args.dir) process.env.FIXTURES_DIR = args.dir;
     // Set before config/env.js loads backend/.env: dotenv never overrides a variable already set.
-    if (!args.allowModel) process.env.LLM_API_URL = MODEL_DISABLED_URL;
+    // Every model endpoint, including per-role ones (Phase 6).
+    if (!args.allowModel) for (const name of ['LLM_API_URL', 'PLANNER_LLM_API_URL', 'REPORT_LLM_API_URL']) process.env[name] = MODEL_DISABLED_URL;
     const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soc-replay-'));
     process.env.SOC_DB_PATH = path.join(scratchDir, 'replay.db');
 
@@ -116,6 +127,17 @@ async function main() {
                         replayedAt: new Date().toISOString(),
                         requestId: requestId ?? null,
                         modelAllowed: args.allowModel,
+                        livePlanner: args.livePlanner,
+                        models: run?.generation?.models ?? null,
+                        // Counts and reasons only: what verification removed from this model's answer.
+                        grounding: run?.grounding ? {
+                            claims: run.grounding.claims,
+                            shown: run.grounding.shown,
+                            dropped: run.grounding.dropped.length,
+                            droppedReasons: run.grounding.dropped.map(d => d.reason)
+                        } : null,
+                        reportSource: run?.generation?.report ?? null,
+                        timings: run?.timings ?? null,
                         report: run?.reportText ?? response.summary ?? response.text ?? null,
                         modelGenerated: run?.modelGenerated ?? null,
                         totalHits: response.total_hits ?? null

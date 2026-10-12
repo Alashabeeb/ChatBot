@@ -8,6 +8,11 @@
     "durationMs": 0,
     "timeoutMs": 10000,
     "model": "foundation-sec-8b-instruct",
+    "models": {
+      "planner": "foundation-sec-8b-instruct",
+      "report": "foundation-sec-8b-instruct",
+      "default": "foundation-sec-8b-instruct"
+    },
     "nodeVersion": "synthetic",
     "platform": "synthetic"
   },
@@ -4938,7 +4943,11 @@
     "generation": {
       "planner": "model",
       "report": "fallback_unverifiable",
-      "model": "foundation-sec-8b-instruct"
+      "model": "foundation-sec-8b-instruct",
+      "models": {
+        "planner": "foundation-sec-8b-instruct",
+        "report": "foundation-sec-8b-instruct"
+      }
     },
     "totalHits": 1500,
     "tools": [

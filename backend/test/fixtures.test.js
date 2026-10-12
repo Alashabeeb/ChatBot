@@ -416,6 +416,55 @@ test('replay CLI: a fixture captured before Phase 5 (no aggregation requests) st
     assert.ok(withAggs.calls.length > 0);
 });
 
+test('replay CLI --allow-model --live-planner: the configured models answer; the record keeps timings, verification counts and model names', async (t) => {
+    const fixturesDir = path.join(tmpDir, 'compare-src');
+    await capture(t, fixturesDir);
+    // A local stand-in model (never an external one): plans like the capture, reports one cited claim.
+    const requests = [];
+    const model = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', d => { body += d; });
+        req.on('end', () => {
+            const parsed = JSON.parse(body);
+            requests.push({ path: req.url, model: parsed.model, system: parsed.messages[0].content.slice(0, 40) });
+            const system = parsed.messages[0].content;
+            const content = system.includes('Planning Engine') ? JSON.stringify(PLAN)
+                : system.includes('Reasoning Engine') ? JSON.stringify({ answer: [{ text: 'Alerts on DC01.', cite: [{ kind: 'agent', ref: 'DC01' }] }] })
+                : '{"summary":"s","keyEntities":[]}';
+            res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ choices: [{ message: { content } }] }));
+        });
+    });
+    await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
+    t.after(() => model.close());
+    const base = `http://127.0.0.1:${model.address().port}`;
+    const env = {
+        PATH: process.env.PATH, JWT_SECRET: 'baseline-test-secret-0123456789abcdefghijkl', OPENSEARCH_URL: 'http://opensearch.test', WAZUH_SERVER_API_URL: 'http://wazuh.test',
+        LLM_API_URL: `${base}/default`, PLANNER_LLM_API_URL: `${base}/planner`, PLANNER_LLM_MODEL: 'cand-planner',
+        REPORT_LLM_API_URL: `${base}/report`, REPORT_LLM_MODEL: 'cand-report'
+    };
+    const outDir = path.join(tmpDir, 'compare-out');
+    const run = await new Promise(resolve => {
+        const child = spawn(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', fixturesDir, '--out', outDir, '--allow-model', '--live-planner'], { cwd: os.tmpdir(), env });
+        let output = '';
+        child.stdout.on('data', d => { output += d; });
+        child.stderr.on('data', d => { output += d; });
+        child.on('close', status => resolve({ status, output }));
+    });
+    assert.equal(run.status, 0, run.output);
+    assert.deepEqual([...new Set(requests.filter(r => r.path !== '/default').map(r => `${r.path} ${r.model}`))].sort(), ['/planner cand-planner', '/report cand-report']);
+
+    const record = JSON.parse(fs.readFileSync(path.join(outDir, fixtureFileName(QUESTION)), 'utf8'));
+    assert.equal(record.replay.status, 'matched', 'the live plan matched the captured searches');
+    assert.equal(record.replay.livePlanner, true);
+    assert.equal(record.replay.modelGenerated, true);
+    assert.match(record.replay.report, /Alerts on DC01\./);
+    assert.deepEqual(record.replay.models, { planner: 'cand-planner', report: 'cand-report' });
+    assert.deepEqual(record.replay.grounding, { claims: 1, shown: 1, dropped: 0, droppedReasons: [] });
+    assert.equal(typeof record.replay.timings.reasoningDuration, 'number');
+    assert.equal(typeof record.replay.timings.planningDuration, 'number');
+    assert.ok(!JSON.stringify(record).includes(base), 'model URLs are never written to the record');
+});
+
 test('replay refuses a SYNTHETIC case placed among real fixtures (synthetic cases are for the checker only)', async (t) => {
     const outDir = path.join(tmpDir, 'synthetic-guard');
     const { file } = await capture(t, outDir);
@@ -440,7 +489,9 @@ test('replay CLI --out writes one baseline record per question: captured answer 
     t.after(() => model.close());
     const env = {
         PATH: process.env.PATH, JWT_SECRET: 'baseline-test-secret-0123456789abcdefghijkl', OPENSEARCH_URL: 'http://opensearch.test',
-        WAZUH_SERVER_API_URL: 'http://wazuh.test', LLM_API_URL: `http://127.0.0.1:${model.address().port}/v1/chat/completions`
+        WAZUH_SERVER_API_URL: 'http://wazuh.test', LLM_API_URL: `http://127.0.0.1:${model.address().port}/v1/chat/completions`,
+        // Per-role endpoints (Phase 6) must be disabled too.
+        REPORT_LLM_API_URL: `http://127.0.0.1:${model.address().port}/report`, PLANNER_LLM_API_URL: `http://127.0.0.1:${model.address().port}/planner`
     };
     const run = await new Promise(resolve => {
         const child = spawn(process.execPath, [path.join(backendDir, 'scripts', 'replayFixtures.js'), '--dir', fixturesDir, '--out', outDir], { cwd: os.tmpdir(), env });

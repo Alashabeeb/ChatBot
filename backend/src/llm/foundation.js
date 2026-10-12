@@ -1,8 +1,10 @@
 import axios from 'axios';
-import { LLM_API_URL, LLM_DEFAULT_TIMEOUT_MS } from '../config/env.js';
+import { LLM_DEFAULT_TIMEOUT_MS } from '../config/env.js';
 import { runLog, recordRunError } from '../observability/runContext.js';
+import { modelFor, authorizationHeaders, DEFAULT_MODEL_NAME } from './models.js';
 
-export const MODEL_NAME = 'foundation-sec-8b-instruct';
+/** The default model's name. Per-role models come from modelFor() (src/llm/models.js). */
+export const MODEL_NAME = DEFAULT_MODEL_NAME;
 
 const CHAT_ROLES = new Set(['user', 'assistant']);
 
@@ -11,11 +13,13 @@ const CHAT_ROLES = new Set(['user', 'assistant']);
  * options.timeout (ms) bounds the whole call (F-03); a missing or invalid value falls back to
  * LLM_DEFAULT_TIMEOUT_MS, never to "wait forever". History entries that aren't { role: 'user' |
  * 'assistant', content: string } are skipped (F-22): only systemInstruction has system authority.
+ * options.role ('planner' | 'report' | 'default') picks the model (src/llm/models.js).
  * Returns the reply text, or null on any failure (callers fall back).
  */
 export async function askFoundation(prompt, systemInstruction, conversationHistory = [], options = {}) {
     try {
         const { maxTokens } = options;
+        const config = modelFor(options.role);
         const timeout = Number.isFinite(options.timeout) && options.timeout > 0 ? options.timeout : LLM_DEFAULT_TIMEOUT_MS;
         const messages = [
             { role: "system", content: systemInstruction }
@@ -30,17 +34,17 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         messages.push({ role: "user", content: prompt });
 
         const requestBody = {
-            model: MODEL_NAME,
+            model: config.model,
             messages
         };
         if (maxTokens) requestBody.max_tokens = maxTokens;
 
         // timeout: no response in time. signal: hard deadline for the whole call, body included.
-        const response = await axios.post(LLM_API_URL, requestBody, { timeout, signal: AbortSignal.timeout(timeout) });
+        const response = await axios.post(config.url, requestBody, { timeout, signal: AbortSignal.timeout(timeout), headers: authorizationHeaders(config) });
         
         return response.data.choices[0].message.content.trim();
     } catch (error) {
-        runLog.warn('Foundation-sec-8B request failed.', error.message);
+        runLog.warn(`Model request failed (${options.role ?? 'default'}: ${modelFor(options.role).model}).`, error.message);
         recordRunError('llm', error.message);
         return null;
     }

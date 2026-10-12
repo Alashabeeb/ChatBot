@@ -437,9 +437,15 @@ def recommendations(answer):
 # ---------------------------------------------------------------------------------------------------
 
 
-def check_case(case):
+ANSWER_FIELDS = {
+    'captured': ('result', 'report'),   # the answer production gave at capture (the baseline)
+    'replay': ('replay', 'report'),     # the answer a replay produced (model comparisons)
+}
+
+
+def check_case(case, answer_field='captured'):
     ev = Evidence(case)
-    answer = str(get(case, 'result', 'report') or '')
+    answer = str(get(case, *ANSWER_FIELDS[answer_field]) or '')
     hard = []
 
     def hard_check(check_id, ok, detail=''):
@@ -594,7 +600,7 @@ def case_files(paths):
     files = []
     for p in map(Path, paths):
         if p.is_dir():
-            files.extend(sorted(f for f in p.glob('*.json') if f.name not in ('manifest.json', 'scores.json')))
+            files.extend(sorted(f for f in p.glob('*.json') if f.name not in ('manifest.json', 'scores.json', 'comparison.json')))
         else:
             files.append(p)
     return files
@@ -622,12 +628,14 @@ def main(argv=None):
     parser.add_argument('--json', help='write per-case results to this file')
     parser.add_argument('--strict', action='store_true', help='exit 1 if any hard check fails')
     parser.add_argument('--expect', action='store_true', help="compare each case with its own 'expect' block (checker self-test)")
+    parser.add_argument('--answer', choices=sorted(ANSWER_FIELDS), default='captured',
+                        help='which answer to score: the captured one (result.report, default) or a replay\'s (replay.report)')
     args = parser.parse_args(argv)
 
     results, mismatches = [], 0
     for f in case_files(args.paths):
         case = json.loads(f.read_text(encoding='utf-8'))
-        result = check_case(case)
+        result = check_case(case, args.answer)
         result['file'] = f.name
         if args.expect:
             if not case.get('synthetic') or 'expect' not in case:

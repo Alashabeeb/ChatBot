@@ -115,7 +115,7 @@ test('model down: record flags the fallback and stores the model and planner err
 
     assert.equal(run.status, 'completed');
     assert.equal(run.modelGenerated, false);
-    assert.deepEqual(run.generation, { planner: 'fallback_rules', report: 'fallback_model_unavailable', model: 'foundation-sec-8b-instruct' });
+    assert.deepEqual(run.generation, { planner: 'fallback_rules', report: 'fallback_model_unavailable', model: 'foundation-sec-8b-instruct', models: { planner: 'foundation-sec-8b-instruct', report: 'foundation-sec-8b-instruct' } });
     assert.equal(run.planner.rawOutput, null);
     assert.match(run.planner.error, /LLM did not return a response/);
     assert.ok(run.errors.some(e => e.stage === 'llm' && /ECONNREFUSED/.test(e.message)), JSON.stringify(run.errors));

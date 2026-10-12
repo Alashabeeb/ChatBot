@@ -45,3 +45,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
+# Model comparison config (endpoint URLs; keys stay in the environment)
+evals/models.json
+__pycache__/

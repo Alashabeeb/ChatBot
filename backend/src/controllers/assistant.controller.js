@@ -7,7 +7,7 @@ import {
     LLM_CHAT_HISTORY_CHAR_BUDGET,
     CHAT_MAX_MESSAGE_CHARS
 } from '../config/env.js';
-import { MODEL_NAME } from '../llm/foundation.js';
+import { modelFor } from '../llm/models.js';
 import { streamChatCompletion } from '../llm/streamChat.js';
 import { buildChatMessages, looksLikeDataQuestion } from '../services/assistant.service.js';
 import { sanitizeChatHistory } from '../utils/history.util.js';
@@ -98,7 +98,7 @@ export async function handleChatStream(req, res) {
         const truncated = finishReason === 'length' || (Boolean(failure) && modelGenerated);
         const stopped = failure?.code === 'aborted';
         const report = stopped ? 'stopped' : !modelGenerated ? 'fallback_model_unavailable' : truncated ? 'model_truncated' : 'model';
-        const generation = { mode: 'chat', planner: null, report, model: MODEL_NAME };
+        const generation = { mode: 'chat', planner: null, report, model: modelFor('default').model };
 
         send('done', {
             request_id: requestId,

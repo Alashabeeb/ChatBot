@@ -26,6 +26,30 @@ The input is the capture fixture format (`backend/src/recording/capture.js`): th
 `result.report` and the evidence is the recorded OpenSearch and Wazuh responses in `calls`, plus
 `result.tools` for tools that were unavailable.
 
+## Comparing models
+
+`compare_models.py` replays every captured fixture through each configured model and scores the
+answers side by side: mean score, answers failing a hard check, fabrications that reached the answer,
+claims the verification removed (what the model tried to say without support), format failures, and
+the time of the model call alone. Searches always come from the fixtures; only the model is live.
+
+```bash
+cp evals/models.example.json evals/models.json      # gitignored; edit it
+python3 evals/compare_models.py --config evals/models.json --dry-run
+python3 evals/compare_models.py --config evals/models.json
+```
+
+- **Every model needs `approved_by`.** Nothing is called without it, and the example's candidate is
+  deliberately blank.
+- **Keys never go in the file.** `api_key_env` names the environment variable that holds each key.
+  A key is only ever sent to the endpoint it's configured with.
+- **Report models are compared by default.** `--live-planner` also asks each planner model for the
+  plan; the searches still come from the fixture, so a plan that builds different searches shows as
+  "not matched" rather than running a live search.
+- Endpoints must be OpenAI-compatible chat completions (`choices[0].message.content`), with an
+  optional bearer key.
+- Results go to `baseline/compare-<time>/` (gitignored): they contain real telemetry.
+
 ## Synthetic cases
 
 Every case is a capture of an invented scenario, made by running the real capture code with every

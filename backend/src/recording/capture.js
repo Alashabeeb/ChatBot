@@ -1,11 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-import { OPENSEARCH_URL, WAZUH_SERVER_API_URL, LLM_API_URL } from '../config/env.js';
+import { OPENSEARCH_URL, WAZUH_SERVER_API_URL } from '../config/env.js';
 import db, { initDatabase } from '../config/db.js';
 import { processChatQuery } from '../services/chat.service.js';
 import { RunModel } from '../models/Run.js';
-import { MODEL_NAME } from '../llm/foundation.js';
+import { modelFor, configuredModelUrls } from '../llm/models.js';
 import { currentRequestId } from '../observability/runContext.js';
 import { FIXTURE_VERSION, fixtureFileName, pathFromBase, mapStrings } from './common.js';
 import { redactFixture } from './redact.js';
@@ -23,7 +23,7 @@ const REQUIRED_SETTINGS = ['OPENSEARCH_URL', 'WAZUH_SERVER_API_URL', 'WAZUH_USER
 
 function classify(url) {
     const value = String(url);
-    if (LLM_API_URL && value === LLM_API_URL) return { kind: 'llm', path: '' };
+    if (configuredModelUrls().includes(value)) return { kind: 'llm', path: '' };
     if (WAZUH_SERVER_API_URL && value.startsWith(WAZUH_SERVER_API_URL)) {
         const requestPath = pathFromBase(value, WAZUH_SERVER_API_URL);
         return { kind: requestPath.startsWith('/security/user/authenticate') ? 'wazuh-auth' : 'wazuh', path: requestPath };
@@ -106,7 +106,7 @@ function scrubBaseUrls(fixture) {
     const bases = [
         [OPENSEARCH_URL, '<OPENSEARCH_URL>'],
         [WAZUH_SERVER_API_URL, '<WAZUH_SERVER_API_URL>'],
-        [LLM_API_URL, '<LLM_API_URL>']
+        ...configuredModelUrls().map((url, i) => [url, i === 0 ? '<LLM_API_URL>' : `<LLM_API_URL_${i + 1}>`])
     ].filter(([base]) => typeof base === 'string' && base.length > 0)
         .sort((a, b) => b[0].length - a[0].length);
     return mapStrings(fixture, text => bases.reduce((out, [base, placeholder]) => out.split(base).join(placeholder), text));
@@ -160,7 +160,8 @@ async function captureOne(question, { recorder, timeoutMs }) {
         capture: {
             durationMs: Date.now() - startedAt.getTime(),
             timeoutMs,
-            model: MODEL_NAME,
+            model: modelFor('report').model,
+            models: { planner: modelFor('planner').model, report: modelFor('report').model, default: modelFor('default').model },
             nodeVersion: process.version,
             platform: process.platform
         },

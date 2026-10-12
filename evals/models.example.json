@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy to evals/models.json and edit. Every model needs approved_by; keys go in your environment, referenced by name in api_key_env. The 'current' entry uses backend/.env as production does.",
+  "models": [
+    {
+      "name": "current",
+      "approved_by": "production default (foundation-sec-8b-instruct via backend/.env)",
+      "env": {}
+    },
+    {
+      "name": "candidate-example",
+      "approved_by": "",
+      "env": {
+        "REPORT_LLM_API_URL": "https://approved-endpoint.example/v1/chat/completions",
+        "REPORT_LLM_MODEL": "model-name"
+      },
+      "api_key_env": {
+        "REPORT_LLM_API_KEY": "CANDIDATE_EXAMPLE_API_KEY"
+      }
+    }
+  ]
+}

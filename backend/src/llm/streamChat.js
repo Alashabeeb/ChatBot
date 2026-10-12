@@ -1,5 +1,4 @@
-import { LLM_API_URL } from '../config/env.js';
-import { MODEL_NAME } from './foundation.js';
+import { modelFor, authorizationHeaders } from './models.js';
 
 /**
  * A failure while streaming from the model. `code` is one of:
@@ -20,7 +19,7 @@ export class ModelStreamError extends Error {
 }
 
 /**
- * Streams a chat completion from the OpenAI-compatible endpoint at LLM_API_URL, calling onToken for
+ * Streams a chat completion from the default model's OpenAI-compatible endpoint (LLM_API_URL), calling onToken for
  * each piece of text as it arrives. Servers that ignore `stream: true` and return plain JSON work too.
  * Resolves to { text, finishReason, firstTokenMs }; rejects with ModelStreamError.
  */
@@ -63,10 +62,11 @@ export async function streamChatCompletion({
 
     armTimeout(firstTokenTimeoutMs, `The model did not start answering within ${Math.round(firstTokenTimeoutMs / 1000)} seconds.`);
     try {
-        const response = await fetch(LLM_API_URL, {
+        const config = modelFor('default');
+        const response = await fetch(config.url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-            body: JSON.stringify({ model: MODEL_NAME, messages, stream: true, max_tokens: maxTokens, temperature }),
+            headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...authorizationHeaders(config) },
+            body: JSON.stringify({ model: config.model, messages, stream: true, max_tokens: maxTokens, temperature }),
             signal: controller.signal
         });
         if (!response.ok) {

@@ -22,7 +22,9 @@ import { LLM_PLANNER_TIMEOUT_MS } from '../config/env.js';
  * queries built downstream are the same on every run.
  */
 export async function generateLLMPlan(text, history = [], { storedContext = null } = {}) {
-    if (fixturesEnabled()) {
+    // FIXTURES_LIVE_PLANNER=1 (replayFixtures.js --live-planner): ask the configured planner model instead;
+    // its searches are still served from the fixture, so a different plan shows up as a fixture miss.
+    if (fixturesEnabled() && process.env.FIXTURES_LIVE_PLANNER !== '1') {
         return replayPlan(text);
     }
 
@@ -38,7 +40,7 @@ export async function generateLLMPlan(text, history = [], { storedContext = null
             : '';
         const prompt = `User Request: "${text}"\n\nAvailable Tools:\n${toolsContext}${contextBlock}\n\nGenerate the execution plan.`;
         
-        llmResponse = await askFoundation(prompt, SYSTEM_PROMPTS.AGENT_PLANNER_PROMPT, history, { timeout: LLM_PLANNER_TIMEOUT_MS });
+        llmResponse = await askFoundation(prompt, SYSTEM_PROMPTS.AGENT_PLANNER_PROMPT, history, { timeout: LLM_PLANNER_TIMEOUT_MS, role: 'planner' });
         
         if (!llmResponse) {
             throw new Error("LLM did not return a response.");
