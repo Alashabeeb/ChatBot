@@ -82,3 +82,12 @@ test('a follow-up answer is recognised live and after reloading from history', (
   assert.equal(isFollowUpAnswer({ summary: '**Answered from the evidence of your previous search** ("q"). Nothing new…' }), true);
   assert.equal(isFollowUpAnswer({ summary: '**Searched:** Wazuh alerts (3 matches).' }), false);
 });
+
+test('the live stage is shown inside the assistant message column, not as a loose line in the card', () => {
+  const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const page = fs.readFileSync(path.join(src, 'pages/ChatPage.jsx'), 'utf8');
+  const message = fs.readFileSync(path.join(src, 'components/ChatMessage.jsx'), 'utf8');
+  assert.doesNotMatch(page, /className="typing-status/, 'ChatPage must not render its own status line');
+  assert.match(page, /status=\{m\.isStreaming \? \(m\.stageLabel \|\| 'Sending your question'\) : null\}/);
+  assert.match(message, /export default function ChatMessage\(\{ message, badge, onSearchWazuh, status \}\)/);
+});

@@ -524,7 +524,8 @@ test('findRun is read-only and shows what is needed to turn a bad answer into a 
         initDatabase();
         RunModel.start({ requestId: 'req-abc', userId: 'user_admin_root', instanceId: 'i1', question: 'show me failed logons today', startedAt: '2026-10-12T08:00:00.000Z' });
         RunModel.finish('req-abc', { status: 'completed', planner: { source: 'model', tools: [] }, tools: [{ tool: 'searchSecurityLogs', totalHits: 3 }],
-            reportText: 'The answer.', timings: { totalDuration: 5 }, errors: [], modelGenerated: true,
+            reportText: 'The answer.', timings: { totalDuration: 5, reasoningDuration: 4100, reportPromptChars: 12345 },
+            errors: [{ stage: 'llm', message: 'The model server returned HTTP 400: maximum context length is 8192 tokens', at: '2026-10-12T08:00:04.000Z' }], modelGenerated: true,
             generation: { planner: 'model', report: 'model', model: 'm' },
             grounding: { claims: 2, shown: 1, dropped: [{ section: 'findings', text: 'From 10.9.9.9.', reason: 'IP 10.9.9.9 is not in the evidence' }] },
             completedAt: '2026-10-12T08:00:05.000Z' });
@@ -541,7 +542,8 @@ test('findRun is read-only and shows what is needed to turn a bad answer into a 
 
     const byId = spawnSync(process.execPath, [script, '--db', dbPath, '--request-id', 'req-abc'], { encoding: 'utf8' });
     assert.equal(byId.status, 0, byId.stderr);
-    for (const expected of [/question: show me failed logons today/, /report: model/, /The answer\./, /dropped \(1\)/, /IP 10\.9\.9\.9 is not in the evidence/, /searchSecurityLogs/]) {
+    for (const expected of [/question: show me failed logons today/, /report: model/, /The answer\./, /dropped \(1\)/, /IP 10\.9\.9\.9 is not in the evidence/, /searchSecurityLogs/,
+        /errors \(1\):/, /\[llm\] The model server returned HTTP 400: maximum context length is 8192 tokens/, /model call: 4,100 ms/, /report prompt: 12,345 characters/]) {
         assert.match(byId.stdout, expected);
     }
     assert.equal(hash(), before, 'database file must be unchanged');

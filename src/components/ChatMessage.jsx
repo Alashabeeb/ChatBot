@@ -95,8 +95,10 @@ export function Markdown({ text }) {
 /**
  * message: { role, text, isStreaming, isError, truncated, stopped, suggestSearch, question, isWelcome }
  * badge: optional label shown next to the assistant name (e.g. "Searched Wazuh").
+ * status: while streaming, what the backend is actually doing (a Search Wazuh stage); shown in the
+ *   message column, in place of "Thinking…" before any text arrives and under the text after.
  */
-export default function ChatMessage({ message, badge, onSearchWazuh }) {
+export default function ChatMessage({ message, badge, onSearchWazuh, status }) {
   const isUser = message.role === 'user';
   const text = message.text || '';
   const thinking = message.isStreaming && !text;
@@ -123,7 +125,7 @@ export default function ChatMessage({ message, badge, onSearchWazuh }) {
           ) : thinking ? (
             <div className="typing-status" role="status">
               <span className="typing-spinner" />
-              <span className="typing-status-text">Thinking…</span>
+              <span className="typing-status-text">{status || 'Thinking…'}</span>
             </div>
           ) : message.isError ? (
             <div className="msg-notice msg-notice-error" role="alert">
@@ -133,7 +135,14 @@ export default function ChatMessage({ message, badge, onSearchWazuh }) {
           ) : (
             <div className={`message-text ${message.isStreaming ? 'is-streaming' : ''}`}>
               <Markdown text={text} />
-              {message.isStreaming && <span className="stream-cursor" aria-hidden="true" />}
+              {message.isStreaming && !status && <span className="stream-cursor" aria-hidden="true" />}
+            </div>
+          )}
+
+          {!isUser && message.isStreaming && status && text && (
+            <div className="typing-status" role="status">
+              <span className="typing-spinner" />
+              <span className="typing-status-text">{status}</span>
             </div>
           )}
 

@@ -30,7 +30,7 @@ const llmServer = http.createServer((req, res) => {
         if (system.includes('Memory Engine')) return reply('{"summary":"s","keyEntities":[]}');
         model.reportRequests++;
         if (body.stream) model.streamModels.push(body.model);
-        if (model.behaviour === 'down') return res.writeHead(500).end('{}');
+        if (model.behaviour === 'down') return res.writeHead(400, { 'Content-Type': 'application/json' }).end('{"error":"This model\'s maximum context length is 8192 tokens"}');
         const text = JSON.stringify(model.report);
         if (!body.stream) return reply(text);
         res.on('close', () => { if (!res.writableEnded) model.clientClosed = true; });
@@ -188,6 +188,10 @@ test('model down: the header still streams; the answer is the code-written fallb
     const response = done(events);
     assert.equal(response.model_generated, false);
     assert.match(response.summary, /Model unavailable/);
+    // The model server's own explanation is kept in the run record (for diagnosis), not shown to the analyst.
+    const run = RunModel.findById(response.request_id);
+    assert.ok(run.errors.some(e => e.stage === 'llm' && /HTTP 400.*maximum context length is 8192 tokens/.test(e.message)), JSON.stringify(run.errors));
+    assert.doesNotMatch(response.summary, /context length/);
 });
 
 test('Stop during the analysis cancels the model request and records the run', async () => {

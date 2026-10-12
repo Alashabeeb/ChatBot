@@ -363,6 +363,21 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 - **Effect:** after a backend restart, or after `FOLLOW_UP_TTL_MS`, a follow-up searches again instead of reusing the evidence, and says nothing about it beyond the normal header. Saved conversations don't store which answer was a follow-up; the UI recognises it from the answer's opening line.
 - **Why not persisted:** it would mean a second copy of raw SIEM records on disk (they're already in `messages.raw_logs`), for a convenience.
 
+**F-67: The code-written summary mislabelled approximate aggregation counts.** Found 2026-10-12 from a production screenshot. **FIXED (this commit).**
+- **Where:** `backend/src/agent/grounding.js` (`renderEvidenceSummary`).
+- **Problem:** when OpenSearch's terms counts carried an error bound (normal across shards), the summary said "in the most recent records retrieved" and "at least …", the wording meant for sample counts, although the counts covered every match. Numbers also lacked thousands separators.
+- **Now:** "counted over every match; OpenSearch's counts are approximate" with "about 1,386,641"; exact counts plain; sample counts keep their wording.
+
+**F-68: "List the N most recent logs" isn't something the answer format can do.** Found 2026-10-12 from a production screenshot.
+- **Where:** the report contract (Phase 4) and the evidence sent to the model (Phase 5: at most 10 example records).
+- **Problem:** the pipeline retrieves the 200 most recent records, newest first (all visible under View Full Details), but the answer is built from counts and cited statements. A request for a list gets a summary of counts at best.
+- **Proposed:** for listing questions, the code itself renders a table of the N most recent records (time, rule, level, agent, source IP), exact and with nothing to verify.
+
+**F-69: The deploy and capture guides assume a Windows host; production runs Ubuntu with pm2 and nginx.** Found 2026-10-12 from a production screenshot.
+- **Where:** `docs/DEPLOY.md`, `docs/CAPTURE_RUNBOOK.md` (PowerShell throughout).
+- **Problem:** the steps are right in substance (backup, `JWT_SECRET`, `npm ci` in both folders, build, restart), but the commands are PowerShell, while production uses `pm2 restart` and copies `dist/` to `/var/www/html` for nginx.
+
+
 ## Run logging (added 2026-09-16)
 
 **Storage: SQLite `runs` table, not `runs/` on disk.** Why:

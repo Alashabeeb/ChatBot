@@ -74,7 +74,10 @@ export async function streamChatCompletion({
             signal: controller.signal
         });
         if (!response.ok) {
-            throw fail('model_unavailable', `The model server returned HTTP ${response.status}.`);
+            // Keep the server's own explanation (e.g. "maximum context length…") for the run record and
+            // logs; callers show the analyst only a generic message.
+            const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 300);
+            throw fail('model_unavailable', `The model server returned HTTP ${response.status}${detail ? `: ${detail}` : '.'}`);
         }
 
         if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {

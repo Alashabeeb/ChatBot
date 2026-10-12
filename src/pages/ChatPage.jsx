@@ -547,13 +547,11 @@ export default function ChatPage({ currentUser, onLogout }) {
                 )}
                 {m.type === 'agent_response' && (
                   <div className="agent-response-card">
-                    {m.summary && <ChatMessage message={{ role: 'assistant', text: m.summary }} badge={isFollowUpAnswer(m) ? 'From previous search' : 'Searched Wazuh'} />}
-                    {m.isStreaming && (
-                      <div className="typing-status search-stage" role="status">
-                        <span className="typing-spinner" />
-                        <span className="typing-status-text">{m.stageLabel || 'Sending your question'}</span>
-                      </div>
-                    )}
+                    <ChatMessage
+                      message={{ role: 'assistant', text: m.summary, isStreaming: m.isStreaming }}
+                      badge={isFollowUpAnswer(m) ? 'From previous search' : 'Searched Wazuh'}
+                      status={m.isStreaming ? (m.stageLabel || 'Sending your question') : null}
+                    />
                     {!m.isStreaming && (
                     <div className="agent-response-actions">
                       <button 

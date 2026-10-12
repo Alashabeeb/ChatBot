@@ -34,8 +34,12 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         
         return response.data.choices[0].message.content.trim();
     } catch (error) {
-        runLog.warn(`Model request failed (${options.role ?? 'default'}: ${modelFor(options.role).model}).`, error.message);
-        recordRunError('llm', error.message);
+        // The server's explanation, if it sent one (e.g. "maximum context length…"), goes into the run record.
+        const body = error.response?.data;
+        const detail = body ? (typeof body === 'string' ? body : JSON.stringify(body)).replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+        const message = detail ? `${error.message}: ${detail}` : error.message;
+        runLog.warn(`Model request failed (${options.role ?? 'default'}: ${modelFor(options.role).model}).`, message);
+        recordRunError('llm', message);
         return null;
     }
 }

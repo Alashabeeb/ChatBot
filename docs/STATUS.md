@@ -7,7 +7,7 @@
 
 | | |
 |---|---|
-| **Production** (Windows host) | `c0e2010` ("Push 26"). None of the work below is deployed yet. |
+| **Production** (Ubuntu, pm2 + nginx) | **`main` deployed by the owner on 2026-10-12** (seen in a screenshot: `pm2 restart`, `npm run build`, `dist/` copied to `/var/www/html`). The first answer seen there was the "Model unavailable" fallback: the cause is not yet known (run `findRun.js` on the server). |
 | **`main`** | Phases 0–8 complete. All tests and the release gate pass. |
 | **Baseline capture** | **Not done yet.** Waiting on the Windows trip (bundle built from `b346a38`). |
 | **Model comparison** | Tooling ready; **no endpoint approved yet**. |

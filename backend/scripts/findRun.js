@@ -56,6 +56,14 @@ function main() {
         console.log(`planner: ${generation.planner ?? planner.source ?? '-'}   report: ${generation.report ?? '-'}   models: ${JSON.stringify(generation.models ?? generation.model ?? null)}`);
         console.log('\nsearches and tools:');
         for (const t of tools) console.log(`  - ${t.tool}${t.parameters?.sourceScope ? ` (${t.parameters.sourceScope})` : ''}: ${t.success === false ? `FAILED ${t.error}` : `${t.totalHits ?? t.total ?? '-'} hit(s)`}${t.parameters?.timeRange ? `, window ${t.parameters.timeRange}` : ''}`);
+        const errors = parse(row.errors_json) ?? [];
+        if (errors.length) {
+            console.log(`\nerrors (${errors.length}):`);
+            for (const e of errors) console.log(`  - [${e.stage}] ${e.message}${e.at ? `  (${e.at})` : ''}`);
+        }
+        const timings = parse(row.timings_json) ?? {};
+        const ms = v => (typeof v === 'number' ? `${v.toLocaleString('en-US')} ms` : '-');
+        console.log(`\ntimings: total ${ms(timings.totalDuration)}; planning ${ms(timings.planningDuration)}; searches ${ms(timings.executionDuration)}; model call: ${ms(timings.reasoningDuration)}${typeof timings.reportPromptChars === 'number' ? `; report prompt: ${timings.reportPromptChars.toLocaleString('en-US')} characters` : ''}`);
         if (grounding) {
             console.log(`\nverification: ${grounding.claims} claim(s), ${grounding.shown} shown, dropped (${grounding.dropped?.length ?? 0}):`);
             for (const d of grounding.dropped ?? []) console.log(`  - [${d.section}] ${d.reason}\n      "${d.text}"`);

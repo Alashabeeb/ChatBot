@@ -226,11 +226,15 @@ export function renderHeader(index) {
 /** A code-written summary of what was retrieved: counts only, nothing inferred. */
 export function renderEvidenceSummary(index) {
     const lines = [];
-    const fmt = (bounds) => (bounds.min === bounds.max ? String(bounds.min) : `at least ${bounds.min}`);
+    // Aggregated counts cover every match; when OpenSearch reports an error bound they are approximate
+    // ("about"). Without aggregations, counts come from the records returned and are lower bounds.
+    const n = value => value.toLocaleString('en-US');
+    const fmt = (bounds) => (bounds.min === bounds.max ? n(bounds.min) : `${index.allAggregated ? 'about' : 'at least'} ${n(bounds.min)}`);
     const rules = topCounts(index.rules, 5);
     if (rules.length) {
-        const sampled = !index.countsExact && index.searches.some(s => !s.failed && !s.complete);
-        lines.push(`**Most frequent rules${sampled ? ' in the most recent records retrieved' : ''}:** ${rules.map(([id, b]) => `rule ${id}${index.ruleDescriptions.get(id) ? ` (${index.ruleDescriptions.get(id)})` : ''}: ${fmt(b)}`).join('; ')}.`);
+        const sampled = !index.allAggregated && index.searches.some(s => !s.failed && !s.complete);
+        const label = index.allAggregated && !index.countsExact ? " (counted over every match; OpenSearch's counts are approximate)" : sampled ? ' in the most recent records retrieved' : '';
+        lines.push(`**Most frequent rules${label}:** ${rules.map(([id, b]) => `rule ${id}${index.ruleDescriptions.get(id) ? ` (${index.ruleDescriptions.get(id)})` : ''}: ${fmt(b)}`).join('; ')}.`);
     }
     const agents = topCounts(index.agentCounts, 3);
     if (agents.length) lines.push(`**Agents with the most records:** ${agents.map(([name, b]) => `${name}: ${fmt(b)}`).join('; ')}.`);

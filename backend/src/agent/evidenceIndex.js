@@ -229,6 +229,8 @@ export function buildEvidenceIndex(results) {
         anySearchSucceeded: okSearches.length > 0,
         anySearchRan: searches.length > 0,
         countsExact,
+        // Every successful search has an aggregation: counts cover every match (maybe approximately).
+        allAggregated: okSearches.length > 0 && exactSearches.length === okSearches.length,
         severityCounts,
         comparison,
         rules,
