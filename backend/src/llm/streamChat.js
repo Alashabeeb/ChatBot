@@ -30,6 +30,8 @@ export async function streamChatCompletion({
     signal,
     firstTokenTimeoutMs,
     idleTimeoutMs,
+    totalTimeoutMs = null,
+    role = 'default',
     onToken = () => {}
 }) {
     const controller = new AbortController();
@@ -61,8 +63,10 @@ export async function streamChatCompletion({
     };
 
     armTimeout(firstTokenTimeoutMs, `The model did not start answering within ${Math.round(firstTokenTimeoutMs / 1000)} seconds.`);
+    // A hard deadline for the whole answer, whatever the pace of the tokens (used for search reports).
+    const totalTimer = totalTimeoutMs ? setTimeout(() => controller.abort(fail('model_timeout', `The model did not finish within ${Math.round(totalTimeoutMs / 1000)} seconds.`)), totalTimeoutMs) : null;
     try {
-        const config = modelFor('default');
+        const config = modelFor(role);
         const response = await fetch(config.url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...authorizationHeaders(config) },
@@ -116,6 +120,7 @@ export async function streamChatCompletion({
         throw fail('model_unavailable', `Could not reach the model: ${error.cause?.code || error.message}.`);
     } finally {
         clearTimeout(timer);
+        clearTimeout(totalTimer);
         signal?.removeEventListener('abort', onCallerAbort);
     }
 }

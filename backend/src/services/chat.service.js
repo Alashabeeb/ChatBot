@@ -4,6 +4,8 @@ import { askFoundation } from '../llm/foundation.js';
 import { SYSTEM_PROMPTS } from '../llm/prompts.js';
 import { LLM_CONVERSATION_TIMEOUT_MS } from '../config/env.js';
 import { sanitizeChatHistory } from '../utils/history.util.js';
+import { followUpEvidence } from '../agent/followUp.js';
+import { priorClarification } from '../agent/clarify.js';
 
 export const CONVERSATION_UNAVAILABLE_TEXT = 'The AI model is unavailable right now, so I can\'t answer that. Please try again in a moment.';
 
@@ -21,7 +23,12 @@ export function isConversational(lowerText) {
         || CONVERSATIONAL_PATTERNS.some(p => lowerText.includes(p));
 }
 
-export async function processChatQuery(text, history = [], userId = 'default_user_1') {
+/**
+ * options.followUpOf: request_id of the previous Search Wazuh answer in this conversation. When the
+ * question is a follow-up to it (followUp.js), it is answered from that evidence without searching again.
+ * options.emit / options.signal: stream the search (see handleSearchStream) and let the client stop it.
+ */
+export async function processChatQuery(text, history = [], userId = 'default_user_1', options = {}) {
     const normalizedText = typeof text === 'string' ? text.trim() : '';
     if (!normalizedText) {
         return {
@@ -30,8 +37,15 @@ export async function processChatQuery(text, history = [], userId = 'default_use
         };
     }
 
+    if (options.followUpOf) {
+        const decision = followUpEvidence(normalizedText, options.followUpOf, userId);
+        console.log(`[Chat] Follow-up of ${options.followUpOf}: ${decision.reuse ? 'reusing its evidence' : 'searching again'} (${decision.reason}).`);
+        if (decision.reuse) return await runAgentWorkflow(normalizedText, history, userId, { followUp: decision.entry, emit: options.emit, signal: options.signal });
+    }
+
     const lowerText = normalizedText.toLowerCase();
-    if (isConversational(lowerText)) {
+    // A reply to a clarifying question ("yes", "the main one") belongs to that search, not to small talk.
+    if (!priorClarification(history) && isConversational(lowerText)) {
         // A single, short Foundation request keeps ordinary conversation responsive.
         // Sanitized here too, not only in the controller: scripts call this function directly.
         const { history: safeHistory } = sanitizeChatHistory(history);
@@ -53,5 +67,5 @@ export async function processChatQuery(text, history = [], userId = 'default_use
     // ==========================================
     // DELEGATE TO THE WAZUH + FIREWALL AGENT RUNTIME
     // ==========================================
-    return await runAgentWorkflow(normalizedText, history, userId);
+    return await runAgentWorkflow(normalizedText, history, userId, { emit: options.emit, signal: options.signal });
 }

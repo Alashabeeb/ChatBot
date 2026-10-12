@@ -21,17 +21,7 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         const { maxTokens } = options;
         const config = modelFor(options.role);
         const timeout = Number.isFinite(options.timeout) && options.timeout > 0 ? options.timeout : LLM_DEFAULT_TIMEOUT_MS;
-        const messages = [
-            { role: "system", content: systemInstruction }
-        ];
-
-        for (const msg of Array.isArray(conversationHistory) ? conversationHistory : []) {
-            if (msg && CHAT_ROLES.has(msg.role) && typeof msg.content === 'string') {
-                messages.push({ role: msg.role, content: msg.content });
-            }
-        }
-
-        messages.push({ role: "user", content: prompt });
+        const messages = buildModelMessages(prompt, systemInstruction, conversationHistory);
 
         const requestBody = {
             model: config.model,
@@ -48,6 +38,21 @@ export async function askFoundation(prompt, systemInstruction, conversationHisto
         recordRunError('llm', error.message);
         return null;
     }
+}
+
+/**
+ * [system, ...history (user/assistant strings only, F-22), user]: the messages every model call sends.
+ * Shared by askFoundation and the streamed search report, so both send exactly the same request.
+ */
+export function buildModelMessages(prompt, systemInstruction, conversationHistory = []) {
+    const messages = [{ role: 'system', content: systemInstruction }];
+    for (const msg of Array.isArray(conversationHistory) ? conversationHistory : []) {
+        if (msg && CHAT_ROLES.has(msg.role) && typeof msg.content === 'string') {
+            messages.push({ role: msg.role, content: msg.content });
+        }
+    }
+    messages.push({ role: 'user', content: prompt });
+    return messages;
 }
 
 /**

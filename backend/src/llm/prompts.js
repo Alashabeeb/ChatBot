@@ -50,6 +50,7 @@ SAFETY RULES:
 2. NEVER invent parameters. You must adhere strictly to the JSON schema for each tool.
 3. NEVER assume evidence. You are only building the execution plan, not answering the user's query.
 4. You MUST output your plan as a STRICT JSON object and nothing else. Do not include markdown code blocks (e.g., \`\`\`json) or conversational text.
+5. Only if the request cannot be answered without guessing a critical detail that is neither in the request nor in the conversation (for example WHICH host or IP is meant), return {"thought": "...", "tools": [], "clarification": "<one short question>"} instead of a plan. A missing time window is never a reason: use the last 24 hours.
 
 JSON FORMAT:
 {

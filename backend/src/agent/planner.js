@@ -12,6 +12,7 @@ import { validateExecutionPlan } from '../schemas/ExecutionPlan.schema.js';
 import { runLog, recordRunError } from '../observability/runContext.js';
 import { fixturesEnabled, replayPlan } from '../recording/replay.js';
 import { LLM_PLANNER_TIMEOUT_MS } from '../config/env.js';
+import { acceptableClarification } from './clarify.js';
 
 /**
  * Phase 3 LLM-Driven Planner
@@ -47,6 +48,13 @@ export async function generateLLMPlan(text, history = [], { storedContext = null
         }
 
         const planJson = extractJSON(llmResponse);
+
+        // The planner may ask one short question instead of guessing (Phase 7), only with no tools.
+        const clarification = (!Array.isArray(planJson?.tools) || planJson.tools.length === 0) ? acceptableClarification(planJson?.clarification) : null;
+        if (clarification) {
+            runLog.info(`[Planner LLM] Asked for clarification instead of planning: "${clarification}"`);
+            return { tools: [], source: 'model', thought: planJson.thought ?? null, rawOutput: llmResponse, error: null, clarification };
+        }
         
         // Strictly validate against our single schema contract
         validateExecutionPlan(planJson, registry);
