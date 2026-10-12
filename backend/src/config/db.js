@@ -181,6 +181,11 @@ export function initDatabase() {
         CREATE INDEX IF NOT EXISTS idx_runs_user_started ON runs(user_id, started_at);
         CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, instance_id);
     `);
+    // Phase 4: how the report's claims fared against the evidence, including every dropped claim and why.
+    const runColumns = db.prepare('PRAGMA table_info(runs)').all().map(c => c.name);
+    if (!runColumns.includes('grounding_json')) {
+        db.exec('ALTER TABLE runs ADD COLUMN grounding_json TEXT');
+    }
 
     // 7. Seed Default Admin User if no admin exists
     const adminCheck = db.prepare("SELECT id, username FROM users WHERE role = 'admin'").get();

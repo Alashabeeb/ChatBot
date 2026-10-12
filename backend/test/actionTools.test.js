@@ -78,8 +78,9 @@ test('a planned process check reaches neither the model nor the report as eviden
 
     const prompt = llmCalls.find(m => m[0].content.includes('Reasoning Engine')).at(-1).content;
     const evidence = JSON.parse(prompt.slice(prompt.indexOf('{')));
-    assert.equal(evidence.evidence.checkProcessList, undefined, 'unavailable results are never evidence');
-    assert.deepEqual(evidence.unavailableSources.map(s => s.tool), ['checkProcessList']);
+    assert.ok(!JSON.stringify(evidence.searches).includes('process'), 'unavailable results are never evidence');
+    assert.equal(evidence.checkProcessList, undefined);
+    assert.deepEqual(evidence.unavailableSources.map(s => s.source), ['process inspection']);
     assert.match(response.summary, /\*\*Process inspection\*\*: Not available/);
 });
 

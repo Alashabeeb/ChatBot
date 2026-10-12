@@ -45,3 +45,24 @@ test('evals/check.py passes its self-test on the synthetic cases', { skip: !pyth
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.match(run.stdout, /Checker self-test: (\d+)\/\1 synthetic case\(s\) behaved as expected/);
 });
+
+test('grounded pipeline: no fabricated claim from the model reaches the analyst (scored by evals/check.py)', { skip: !python && 'python3 not installed' }, () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-eval-'));
+    try {
+        const run = spawnSync(process.execPath, [path.join(backendDir, 'scripts', 'evalSyntheticPipeline.js'), '--out', out], { encoding: 'utf8', env: { PATH: process.env.PATH } });
+        assert.equal(run.status, 0, run.stdout + run.stderr);
+        const results = JSON.parse(fs.readFileSync(path.join(out, 'scores.json'), 'utf8')).results;
+        const byMode = mode => results.filter(r => r.file.startsWith(`SYNTHETIC-pipeline-${mode}--`));
+        for (const mode of ['faithful', 'adversarial']) {
+            assert.equal(byMode(mode).length, 4);
+            for (const r of byMode(mode)) {
+                assert.equal(r.fabrications, 0, `${r.file}: ${JSON.stringify(r.failed_checks)}`);
+                assert.equal(r.pass, true, `${r.file}: ${JSON.stringify(r.failed_checks)}`);
+            }
+        }
+        // The same adversarial output, shown verbatim as before Phase 4, is caught by the checker.
+        assert.ok(byMode('legacy').reduce((n, r) => n + r.fabrications, 0) > 0, 'the evaluation must be able to see fabrications');
+    } finally {
+        fs.rmSync(out, { recursive: true, force: true });
+    }
+});

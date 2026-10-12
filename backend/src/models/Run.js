@@ -43,11 +43,11 @@ export class RunModel {
         return orphaned.map(r => r.request_id);
     }
 
-    static finish(requestId, { status, planner, tools, reportText, timings, errors, modelGenerated, generation, completedAt }) {
+    static finish(requestId, { status, planner, tools, reportText, timings, errors, modelGenerated, generation, grounding, completedAt }) {
         return db.prepare(`
             UPDATE runs
             SET status = ?, planner_json = ?, tools_json = ?, report_text = ?, timings_json = ?,
-                errors_json = ?, model_generated = ?, generation_json = ?, completed_at = ?
+                errors_json = ?, model_generated = ?, generation_json = ?, grounding_json = ?, completed_at = ?
             WHERE request_id = ?
         `).run(
             status,
@@ -58,6 +58,7 @@ export class RunModel {
             toJson(errors),
             modelGenerated === null || modelGenerated === undefined ? null : (modelGenerated ? 1 : 0),
             toJson(generation),
+            toJson(grounding),
             completedAt,
             requestId
         ).changes;
@@ -78,6 +79,7 @@ export class RunModel {
             timings: fromJson(row.timings_json),
             errors: fromJson(row.errors_json),
             modelGenerated: row.model_generated === null ? null : row.model_generated === 1,
+            grounding: fromJson(row.grounding_json ?? null),
             generation: fromJson(row.generation_json),
             startedAt: row.started_at,
             completedAt: row.completed_at

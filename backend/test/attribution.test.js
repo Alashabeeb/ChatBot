@@ -8,7 +8,9 @@ const { runAgentWorkflow } = await import('../src/agent/runtime.js');
 
 initDatabase();
 
-const MODEL_REPORT = '**Executive Summary**: One sshd authentication failure on web-01.';
+// The report model returns claims with citations (Phase 4); this one is grounded in SAMPLE_LOG's search.
+const MODEL_CLAIM = 'One sshd authentication failure on web-01.';
+const MODEL_REPORT = JSON.stringify({ answer: [{ text: MODEL_CLAIM, cite: [{ kind: 'total', ref: 'searchSecurityLogs', count: 1 }, { kind: 'agent', ref: 'web-01' }] }] });
 
 async function run(t, backends) {
     stubBackends(t, backends);
@@ -34,7 +36,8 @@ test('model up: report is attributed to the model', async (t) => {
 
     assert.equal(response.model_generated, true);
     assert.deepEqual(response.generation, { planner: 'model', report: 'model', model: 'foundation-sec-8b-instruct' });
-    assert.equal(response.summary, MODEL_REPORT);
+    assert.match(response.summary, /^\*\*Searched:\*\* Wazuh alerts \(1 match\)/);
+    assert.ok(response.summary.endsWith(MODEL_CLAIM));
     assert.match(response.footer, /^Analyzed by foundation-sec-8b-instruct \| Runtime: \d+ms$/);
 });
 

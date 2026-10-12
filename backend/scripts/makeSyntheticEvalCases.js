@@ -27,82 +27,9 @@ delete process.env.FIXTURES;
 
 const { default: axios } = await import('axios');
 const { BACKEND_DIR, fixtureFileName } = await import('../src/recording/common.js');
+const { SCENARIOS, stubHttp, normalize } = await import('./lib/evalScenarios.js');
 const outFlag = process.argv.indexOf('--out');
 const OUT_DIR = outFlag > -1 && process.argv[outFlag + 1] ? path.resolve(process.argv[outFlag + 1]) : path.resolve(BACKEND_DIR, '..', 'evals', 'synthetic');
-
-const FIXED_TIME = '2026-10-12T09:00:00.000Z';
-const hit = (ruleId, description, level, mitre, agent, extra = {}) => ({
-    '@timestamp': '2026-10-12T08:30:00.000Z',
-    rule: { id: ruleId, level, description, ...(mitre ? { mitre: { id: mitre } } : {}) },
-    agent: { name: agent.name, id: agent.id },
-    ...extra
-});
-const times = (n, make) => Array.from({ length: n }, make);
-
-const AG = {
-    dc01: { id: '003', name: 'DC01' },
-    web01: { id: '001', name: 'web-01' },
-    web02: { id: '002', name: 'web-02' },
-    fw01: { id: '004', name: 'fw-01' },
-    adfs01: { id: '005', name: 'ADFS01' }
-};
-
-const SCENARIOS = {
-    'top-alerts-week': {
-        question: 'what are the top alerts this week',
-        plan: [
-            { tool: 'searchSecurityLogs', parameters: { timeRange: 'now-7d', intent: 'alerts', extractedIPs: [], minSeverity: null, cleanedSearchText: '' } },
-            { tool: 'getEndpointStatus', parameters: { target: 'agents', status: 'any' } }
-        ],
-        logs: [
-            ...times(6, () => hit('60122', 'Windows logon failure', 5, ['T1110'], AG.dc01, { data: { win: { eventdata: { ipAddress: '185.220.101.7', targetUserName: 'jdoe' } } } })),
-            ...times(3, () => hit('5710', 'sshd: attempt to login using a non-existent user', 5, ['T1110.001'], AG.web01, { data: { srcip: '45.155.205.233', srcuser: 'admin' } })),
-            ...times(2, () => hit('550', 'Integrity checksum changed', 7, ['T1565.001'], AG.web01, { syscheck: { path: '/etc/passwd' } })),
-            hit('31151', 'Multiple web server 400 error codes from same source ip', 10, null, AG.web02, { data: { srcip: '203.0.113.50' } })
-        ],
-        firewallLogs: [hit('4101', 'Firewall drop event', 5, null, AG.fw01, { data: { srcip: '198.51.100.23' } })],
-        agents: [
-            { id: '001', name: 'web-01', status: 'active', ip: '10.20.0.11' },
-            { id: '002', name: 'web-02', status: 'disconnected', ip: '10.20.0.12' },
-            { id: '003', name: 'DC01', status: 'active', ip: '10.20.0.5' },
-            { id: '004', name: 'fw-01', status: 'active', ip: '10.20.0.1' }
-        ]
-    },
-    'failed-logons-today-empty': {
-        question: 'show me failed logons today',
-        plan: [{ tool: 'searchSecurityLogs', parameters: { timeRange: 'now-24h', intent: 'brute_force', extractedIPs: [], minSeverity: null, cleanedSearchText: '' } }],
-        logs: [],
-        firewallLogs: [],
-        agents: []
-    },
-    'ad-servers-firewall-down': {
-        question: 'anything unusual on the AD servers',
-        plan: [
-            { tool: 'searchSecurityLogs', parameters: { timeRange: 'now-24h', intent: 'alerts', extractedIPs: [], minSeverity: null, cleanedSearchText: 'ad servers' } },
-            { tool: 'getEndpointStatus', parameters: { target: 'agents', status: 'any' } }
-        ],
-        logs: [
-            ...times(4, () => hit('60122', 'Windows logon failure', 5, ['T1110'], AG.dc01, { data: { win: { eventdata: { ipAddress: '10.20.0.77', targetUserName: 'svc_backup' } } } })),
-            hit('60204', 'Multiple Windows logon failures', 10, ['T1110'], AG.dc01, { data: { win: { eventdata: { ipAddress: '10.20.0.77', targetUserName: 'svc_backup' } } } })
-        ],
-        firewallError: true,
-        agents: [
-            { id: '003', name: 'DC01', status: 'active', ip: '10.20.0.5' },
-            { id: '005', name: 'ADFS01', status: 'active', ip: '10.20.0.6' }
-        ]
-    },
-    'right-now-sampled': {
-        question: 'what is going on right now',
-        plan: [{ tool: 'searchSecurityLogs', parameters: { timeRange: 'now-1h', intent: 'alerts', extractedIPs: [], minSeverity: 7, cleanedSearchText: '' } }],
-        logs: [
-            ...times(3, () => hit('5710', 'sshd: attempt to login using a non-existent user', 8, ['T1110.001'], AG.web01, { data: { srcip: '45.155.205.233' } })),
-            ...times(2, () => hit('550', 'Integrity checksum changed', 7, ['T1565.001'], AG.web01))
-        ],
-        logsTotal: 1500,
-        firewallLogs: [],
-        agents: []
-    }
-};
 
 const GOOD_WEEK = `**Time window searched:** the last 7 days.
 **Sources searched:** Wazuh alerts, firewall events from Wazuh, and Wazuh agent status.
@@ -135,6 +62,14 @@ const ANSWERS = {
     'top-alerts-week': {
         good: { answer: GOOD_WEEK, expect: { hard_fail: [], score_min: 95 } },
         'good-prose-counts': { answer: WEEK_PROSE, expect: { hard_fail: [], score_min: 90, grades: { rule_ids_with_counts: 1.0 } } },
+        'prose-long-descriptions': {
+            answer: 'In the last 7 days, rule 5710 (sshd: attempt to login using a non-existent user) fired 3 times and rule 60122 (Windows logon failure) fired 6 times. Rule 550 (Integrity checksum changed) fired 2 times. Sources: Wazuh alerts, firewall events, agent status.',
+            expect: { hard_fail: [], grades: { rule_ids_with_counts: 1.0 } }
+        },
+        'prose-long-description-wrong-count': {
+            answer: 'In the last 7 days, rule 5710 (sshd: attempt to login using a non-existent user) fired 30 times. Sources: Wazuh alerts, firewall events, agent status.',
+            expect: { hard_fail: ['H3_rule_counts_match'] }
+        },
         'fabricated-rule-id': {
             answer: GOOD_WEEK.replace('| 4101 |', '| 92657 | Mimikatz credential dumping | 4 |\n| 4101 |'),
             expect: { hard_fail: ['H2_rule_ids_grounded'] }
@@ -274,43 +209,6 @@ Most recent activity is on web-01 from 45.155.205.233 (T1110.001).`,
     }
 };
 
-function stubHttp(scenario) {
-    const isFirewall = body => JSON.stringify(body?.query?.bool?.must ?? []).includes('"iptables"');
-    const reply = content => ({ status: 200, data: { choices: [{ message: { content } }] } });
-    axios.get = async () => ({ status: 200, data: { data: { affected_items: scenario.agents, total_affected_items: scenario.agents.length } } });
-    axios.post = async (url, body) => {
-        if (String(url).includes('/security/user/authenticate')) return { status: 200, data: 'synthetic-token' };
-        if (body?.messages) {
-            const system = body.messages[0].content;
-            if (system.includes('Planning Engine')) return reply(JSON.stringify({ thought: 'synthetic plan', tools: scenario.plan }));
-            if (system.includes('Memory Engine')) return reply('{"summary":"synthetic","keyEntities":[]}');
-            return reply('(replaced by each answer variant)');
-        }
-        if (isFirewall(body) && scenario.firewallError) {
-            const error = new Error('Request failed with status code 503');
-            error.response = { status: 503, data: { error: 'synthetic: firewall index unavailable' } };
-            throw error;
-        }
-        const hits = isFirewall(body) ? scenario.firewallLogs : scenario.logs;
-        const total = isFirewall(body) ? hits.length : (scenario.logsTotal ?? hits.length);
-        return { status: 200, data: { hits: { total: { value: total }, hits: hits.map(h => ({ _source: h })) } } };
-    };
-}
-
-function normalize(fixture) {
-    fixture.capturedAt = FIXED_TIME;
-    fixture.requestId = 'synthetic';
-    fixture.capture = { ...fixture.capture, durationMs: 0, nodeVersion: 'synthetic', platform: 'synthetic' };
-    for (const call of fixture.calls) {
-        call.startedAt = FIXED_TIME;
-        call.durationMs = 0;
-    }
-    fixture.result.timings = null;
-    for (const error of fixture.result.errors || []) if (error.at) error.at = FIXED_TIME;
-    for (const tool of fixture.result.tools || []) tool.executionTimeMs = 0;
-    return fixture;
-}
-
 function withAnswer(fixture, name, variant, answer, expect) {
     const out = structuredClone(fixture);
     out.synthetic = true;
@@ -333,7 +231,7 @@ try {
     for (const old of fs.readdirSync(OUT_DIR).filter(n => n.startsWith('SYNTHETIC-') && n.endsWith('.json'))) fs.rmSync(path.join(OUT_DIR, old));
     let written = 0;
     for (const [name, scenario] of Object.entries(SCENARIOS)) {
-        stubHttp(scenario);
+        stubHttp(axios, scenario, { report: '(replaced by each answer variant)' });
         console.log = console.warn = console.error = () => {};
         await captureFixtures({ questions: [scenario.question], outDir: tmp, timeoutMs: 10000, log: () => {} });
         await new Promise(resolve => setTimeout(resolve, 50));

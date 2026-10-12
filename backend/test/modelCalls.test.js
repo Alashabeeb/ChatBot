@@ -35,6 +35,11 @@ const fakeRes = () => ({ statusCode: 200, body: undefined, status(c) { this.stat
 
 test('Search Wazuh with a hung model: planner and report time out, the run falls back and finishes', async (t) => {
     quiet(t);
+    // The search succeeds (so the report stage asks the model); every model call goes to the hung server.
+    const original = axios.post;
+    t.mock.method(axios, 'post', (url, body, config) => (String(url).includes('/_search')
+        ? Promise.resolve({ status: 200, data: { hits: { total: { value: 1 }, hits: [{ _source: SAMPLE_LOG }] } } })
+        : original.call(axios, url, body, config)));
     const started = Date.now();
     const response = await runAgentWorkflow('show me failed logons today', [], USER_ID);
     assert.ok(Date.now() - started < 4000, `must not wait indefinitely (took ${Date.now() - started} ms)`);

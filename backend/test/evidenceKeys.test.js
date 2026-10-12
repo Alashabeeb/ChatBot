@@ -22,7 +22,8 @@ const firewallFor = (url, body) => (JSON.stringify(body).includes('authenticatio
 
 function reasoningEvidence(llmCalls) {
     const prompt = llmCalls.find(m => m[0].content.includes('Reasoning Engine')).at(-1).content;
-    return JSON.parse(prompt.slice(prompt.indexOf('{'))).evidence;
+    // Searches are listed per call, each under its own key (F-29).
+    return Object.fromEntries(JSON.parse(prompt.slice(prompt.indexOf('{'))).searches.map(s => [s.key, s]));
 }
 
 test('F-29: two planned searches each keep their own evidence for the model', async (t) => {

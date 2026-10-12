@@ -28,11 +28,14 @@ test('each search runs a firewall and a non-firewall query; both results are kep
 
     const prompt = llmCalls.find(m => m[0].content.includes('Reasoning Engine')).at(-1).content;
     const evidence = JSON.parse(prompt.slice(prompt.indexOf('{')));
-    assert.deepEqual(evidence.summary.sourceTotals, { Wazuh: 1, 'Firewall (Wazuh)': 2 });
-    assert.equal(evidence.summary.totalMatches, 3);
-    assert.equal(evidence.evidence.firewallLogs.totalMatches, 2);
-    assert.equal(evidence.evidence.firewallLogs.sampleSize, 2);
-    assert.equal(evidence.evidence.searchSecurityLogs.totalMatches, 1);
+    const byKey = Object.fromEntries(evidence.searches.map(s => [s.key, s]));
+    assert.deepEqual(Object.keys(byKey), ['searchSecurityLogs', 'firewallLogs']);
+    assert.equal(byKey.firewallLogs.totalMatches, 2);
+    assert.equal(byKey.firewallLogs.sampleLogs.length, 2);
+    assert.equal(byKey.firewallLogs.source, 'firewall events from Wazuh');
+    assert.equal(byKey.searchSecurityLogs.totalMatches, 1);
+    // The report opens with both sources and their separate totals.
+    assert.match(response.summary, /^\*\*Searched:\*\* Wazuh alerts \(1 match\) and firewall events from Wazuh \(2 matches\)/);
 
     // The run record keeps what the model planned (one search), separately from the two executed calls.
     const run = RunModel.findById(response.request_id);

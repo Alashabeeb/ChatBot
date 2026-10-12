@@ -16,7 +16,9 @@ const { saveSessionMessage, getSessionMessages } = await import('../src/controll
 
 initDatabase();
 
-const MODEL_REPORT = '**Executive Summary**: One sshd authentication failure on web-01.';
+// The report model returns claims with citations (Phase 4); this one is grounded in SAMPLE_LOG's search.
+const MODEL_CLAIM = 'One sshd authentication failure on web-01.';
+const MODEL_REPORT = JSON.stringify({ answer: [{ text: MODEL_CLAIM, cite: [{ kind: 'total', ref: 'searchSecurityLogs', count: 1 }, { kind: 'agent', ref: 'web-01' }] }] });
 const RAW_LOG_SENTINEL = 'RAW-LOG-SENTINEL-full_log-must-not-be-stored';
 const LOG_WITH_SENTINEL = { ...SAMPLE_LOG, full_log: RAW_LOG_SENTINEL };
 

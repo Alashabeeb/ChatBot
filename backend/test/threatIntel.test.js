@@ -120,9 +120,9 @@ test('LLM-planned run: unavailable threat intel never reaches the model as evide
     const prompt = reasoningCall.at(-1).content;
     const evidence = JSON.parse(prompt.slice(prompt.indexOf('{')));
 
-    assert.equal(evidence.evidence.lookupThreatIntel, undefined, 'unavailable threat intel must not be passed as evidence');
-    assert.deepEqual(evidence.unavailableSources.map(s => s.tool), ['lookupThreatIntel']);
-    assert.equal(evidence.summary.unavailable, 1);
+    assert.equal(evidence.lookupThreatIntel, undefined, 'unavailable threat intel must not be passed as evidence');
+    assert.ok(!JSON.stringify(evidence.searches).match(/threat|reputation|malicious/i));
+    assert.deepEqual(evidence.unavailableSources.map(s => s.source), ['threat intelligence']);
 });
 
 test('fallback-planned run with zero hits: report states threat intel is absent', async (t) => {

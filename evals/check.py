@@ -309,8 +309,8 @@ def rule_mentions(answer):
             ids.extend(found)
             if len(found) != 1:
                 continue
-            after = sentence[m.end():m.end() + 80]
-            c = re.match(r'^(?:[^\d]{0,50}?)(?:\(|:|—|-|–)?\s*(\d[\d,]*)\s*(?:\)|' + COUNT_UNITS + r')', after, re.I)
+            after = sentence[m.end():m.end() + 140]
+            c = re.match(r'^(?:[^\d]{0,110}?)(?:\(|:|—|-|–)?\s*(\d[\d,]*)\s*(?:\)|' + COUNT_UNITS + r')', after, re.I)
             if c and to_int(c.group(1)) is not None:
                 counts.append((found[0], to_int(c.group(1)), 'prose'))
     return ids, counts
