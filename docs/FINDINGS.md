@@ -8,6 +8,7 @@ Opened 2026-09-16; all fixes and findings live in this repository on `main` sinc
 - **Phase 0 (hotfix on `main`):** F-42 mitigated.
 - **Phase 1 (merge):** everything under "Fixed" below. F-43 and F-44 fixed.
 - **Phase 2 (2026-10-07):** F-03, F-08b, F-11, F-12, F-16, F-20, F-22, F-23, F-24, F-29, F-32, F-33, F-35, F-36, F-40, F-42, F-46 fixed; F-31 documented. New: F-55 to F-60.
+- **Phase 3 (2026-10-12):** measurement harness (`evals/`). F-14 corrected (200 hits per search, not 10,000). F-47 closed (runbook rebuilt). New: F-61.
 - **Assistant chat (before Phase 2, by request):** general ChatGPT-style chat with streaming. F-03 fixed on the chat path; F-14 still open for searches. See `docs/ASSISTANT_CHAT.md`.
 - **All of the above is on `main`** (2026-10-07). Production still runs `c0e2010` until `main` is deployed with `docs/DEPLOY.md`; until then it still has F-00, F-01, F-06, F-08a, F-42 and F-43.
 
@@ -163,8 +164,8 @@ Source: `backend/src/llm/foundation.js`, `askFoundation`, lines 7–29.
 - **Where:** `backend/src/agent/runtime.js:186`.
 - **Problem:** `memoryManager.write(...)` in the no-results branch is neither awaited nor given a `.catch`. If the write fails (for example a foreign-key error for an unknown user), Node's default unhandled-rejection behavior crashes the process.
 
-**F-14: Up to 10,000 raw logs per reply are sent to the browser and saved to SQLite.**
-- **Where:** `backend/src/integrations/opensearch.integration.js:25`, `src/pages/ChatPage.jsx:193`.
+**F-14: Up to 10,000 raw logs per reply are sent to the browser and saved to SQLite.** **CORRECTED 2026-10-12 (Phase 3):** the code has returned `size: 200` per search, with an exact `track_total_hits` total, since `c0e2010` ("Push 26", already in production). The 10,000 figure came from an older copy. What remains: up to 200 records per search (two searches per question with the firewall fan-out) are still sent to the browser and saved, while the model sees 30 of them. Phase 5 (aggregation) replaces this.
+- **Where:** `backend/src/integrations/opensearch.integration.js:29`, `src/pages/ChatPage.jsx`.
 - **Problem:** the model only sees 30 of them.
 
 ### Observability
@@ -294,7 +295,7 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 
 **F-46: The firewall fan-out also runs on vulnerability searches.** Due in Phase 2.5. A firewall-scoped query against the vulnerability index costs a request and returns nothing useful. **FIXED 2026-10-07 (Phase 2, `0d862e2`)**
 
-**F-47: `docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` predate the 2026-10-07 consolidation.** *Runbook paths now point at this repo; its bundle contents and steps are rebuilt in Phase 3.* Paths, line numbers and the bundle contents predate the merge. The runbook is rebuilt in Phase 3; the pipeline map needs a refresh after Phase 2.
+**F-47: `docs/PIPELINE_MAP.md` and `docs/CAPTURE_RUNBOOK.md` predate the 2026-10-07 consolidation.** **CLOSED 2026-10-12 (Phase 3):** the runbook is rebuilt for the current code (baseline replay, scoring, `model_generated` check, re-running one question); the pipeline map's header already says its line numbers are a September snapshot, and its F-14 figure is corrected. *Original text:* Paths, line numbers and the bundle contents predate the merge. The runbook is rebuilt in Phase 3; the pipeline map needs a refresh after Phase 2.
 
 **F-48: Two capture questions route by phrase, not by data need.** *Since assistant chat (2026-10-07) this only affects Search Wazuh mode, where the user has explicitly asked to search; the fix there is to route only bare greetings to conversation.*
 - **Where:** `isConversational()`.
@@ -327,6 +328,11 @@ The composer dropdown offered three sources — Wazuh (SIEM), HiSec (Threat), Ho
 **F-59: Leftover CSS for removed status claims.** `.lp-secure-badge`, `.lp-status-bar` and `.status-indicator` rules remain in the stylesheets, unused. Harmless; delete during the next UI pass.
 
 **F-60: Frontend `npm audit` (F-53) still shows the three build-time issues.** Phase 2.15 covered the backend only, as specified. They're in Vite's toolchain, not the browser bundle.
+
+**F-61: A capture run's `manifest.json` lists only that run's questions.** Found in Phase 3.
+- **Where:** `backend/src/recording/capture.js` (`captureFixtures` writes the manifest from this run's summaries).
+- **Problem:** re-running one question into the same folder replaces the manifest, so it no longer describes the other fixtures. The fixture files themselves are unaffected, and replay doesn't read the manifest.
+- **Workaround (in the runbook):** re-run into a sub-folder (`--out .\fixtures\rerun`) and move the new file up.
 
 ## Run logging (added 2026-09-16)
 

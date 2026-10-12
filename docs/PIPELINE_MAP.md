@@ -35,7 +35,7 @@ There are two query paths. Security alerts and CVEs go to the **OpenSearch index
 |---|---|---|---|
 | **Builds the query DSL and sends it** | `backend/src/integrations/opensearch.integration.js` | `searchSecurityLogs(params)` | 9–85 |
 | Time filter (`@timestamp` range, `gte`/`lte`) | same | same | 12–13, 20 |
-| Base query: `bool`, sort desc, `size: 10000`, `track_total_hits` | same | same | 15–27 |
+| Base query: `bool`, sort desc, `size: 200` (was 10000 in an older copy; see F-14), `track_total_hits` | same | same | 15–27 |
 | Severity filter (`rule.level >= minSeverity`) | same | same | 29–31 |
 | IP filter (`multi_match` on `*ip*`, `full_log`, …) | same | same | 33–35 |
 | Intent clauses (`brute_force` / `vulnerabilities` / free text) | same | same | 37–63 |
@@ -185,7 +185,7 @@ This table is agent memory, not an audit log.
 1. **Runs can't be traced end-to-end.** The `requestId` appears only in the console. It isn't returned to the client or stored with the message, so a saved report can't be matched to its console telemetry or plan.
 2. **LLM plan parameters aren't checked against the tool schema.** For example, if the planner leaves out `minSeverity`, then `undefined !== null` is true (`opensearch.integration.js:29`), and a `rule.level` range with `gte: undefined` gets added to the query.
 3. **Multiple tools overwrite each other's `raw_logs`.** `rawLogsToReturn` is reassigned for each tool (`runtime.js:93, 102`), so the "View Full Details" logs come from whichever tool finished last in the loop.
-4. **Up to 10,000 raw logs are sent to the browser and stored in SQLite for every reply** (`size: 10000`). The LLM only sees 30 of them.
+4. **Up to 200 raw logs per search are sent to the browser and stored in SQLite for every reply** (`size: 200`; F-14 originally said 10,000). The LLM only sees 30 of them.
 5. **User text goes into the prompts unescaped** (`planner.js:22`, `runtime.js:135`), which is a prompt-injection surface.
 6. **Two system prompts (`WAZUH_SERVER_API`, `STRICT_FACTUAL_RAG`) are dead code.**
 7. ~~`lookupThreatIntel` returns mock data that feeds into the report.~~ **Fixed 2026-09-16.** The tool now returns `{ available: false, reason }`. The runtime lists it under `structuredEvidence.unavailableSources` (never under `evidence`) and appends `THREAT_INTEL_ABSENT_NOTE` to the report. Regression test: `backend/test/threatIntel.test.js`. Line numbers in `runtime.js` above shifted by about 20 lines after step 3.

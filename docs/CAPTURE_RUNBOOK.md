@@ -10,6 +10,8 @@ Instructions for one trip to the Windows machine that runs the backend. By the e
    - "show me failed logons today"
    - "what are the top alerts this week"
 
+These four fixtures become the **baseline**. Back on the Mac they're replayed and scored with `evals/check.py` against `evals/STANDARD.md`, and every later change is measured against that score. The score is of the answer the live model gave during capture, so **the model must be working during capture** (step 7 says how to check).
+
 ## Read this first
 
 - **The live backend is not touched.** You'll run the updated code from a *separate* folder (`C:\soc-capture`). The live backend folder, its running process and its database stay as they are. The only things run against the live database are the backup (read-only source) and the report (read-only).
@@ -31,10 +33,14 @@ Instructions for one trip to the Windows machine that runs the backend. By the e
 
 ## 0. On the Mac, before the trip
 
-Run the tests; all must pass:
+Run the tests and the checker's self-test; all must pass:
 ```bash
 cd /Users/solomonalor/Documents/ChatBot/backend && npm test
 ```
+```bash
+cd /Users/solomonalor/Documents/ChatBot && python3 evals/check.py evals/synthetic --expect
+```
+The self-test ends with `Checker self-test: N/N synthetic case(s) behaved as expected`.
 
 Build the bundle. It contains only `package.json`, `package-lock.json`, `.gitignore`, `src/` and `scripts/`, with no `.env`, `node_modules`, `data`, `fixtures`, `quarantine` or tests:
 ```bash
@@ -180,7 +186,7 @@ Expected output: backend log lines tagged `[req:<id>]`, and for each question a 
 ```
 [Capture] (2/4) "anything unusual on the AD servers"
 ...
-[Capture]   -> anything-unusual-on-the-ad-servers.json: status=completed planner=model opensearch=1 wazuh=1 llm=3 failedCalls=0 hits=4210 model_generated=true errors=0 size=38.12MB
+[Capture]   -> anything-unusual-on-the-ad-servers.json: status=completed planner=model opensearch=2 wazuh=1 llm=3 failedCalls=0 hits=4210 model_generated=true errors=0 size=0.61MB
 ...
 [Capture] Done: 4/4 completed. Manifest: C:\soc-capture\backend\fixtures\manifest.json
 ```
@@ -196,7 +202,8 @@ Expected output: backend log lines tagged `[req:<id>]`, and for each question a 
 - **`planner=model`:** the model produced the plan. `planner=fallback_rules` means the model couldn't be reached or returned unusable output, and the rule-based planner ran instead. The fixture is still valid, but it doesn't capture the model's plan. Note it.
 - **`opensearch=`:** should be at least 1 for all four questions.
 - **`failedCalls=`:** should be 0. If not, an OpenSearch, Wazuh or model call returned an error, which is recorded in the fixture.
-- **`size=`:** OpenSearch returns up to 10,000 hits per query (F-14), so files of tens of MB are normal.
+- **`model_generated=true`:** needed for every question. It means the live model wrote the captured answer, which is what the baseline scores. `model_generated=false` means the captured answer is a fallback notice (model unreachable, or no hits at all, where the system writes the answer itself). For a question with hits, that fixture can't serve as a baseline: note it and re-run just that question once the model responds (see Troubleshooting for `--questions-file`).
+- **`size=`:** each search returns up to 200 hits plus the exact total, so files are usually well under 5 MB.
 
 **If a question seems stuck:** wait. It gives up after 10 minutes, then moves on. Press Ctrl+C only if the whole run is stuck well beyond that; files already written are kept.
 
@@ -247,25 +254,33 @@ The live backend was never modified. Only the backup file was added next to its 
 
 ---
 
-## Back on the Mac: replay
+## Back on the Mac: replay and baseline
 
 Put the five files into `backend/fixtures/`. That folder is gitignored; create it if it doesn't exist.
 
 ```bash
-cd /Users/solomonalor/Documents/ChatBot/backend && node scripts/replayFixtures.js
+cd /Users/solomonalor/Documents/ChatBot/backend && node scripts/replayFixtures.js --out ../baseline
 ```
 Expected:
 ```
-[Replay] 4 fixture(s) from /Users/solomonalor/Documents/ChatBot/backend/fixtures
+[Replay] 4 fixture(s) from /Users/solomonalor/Documents/ChatBot/backend/fixtures (model calls disabled)
 [Replay] OK       anything-unusual-on-the-ad-servers.json request_id=… hits=4210 report=fallback_model_unavailable
 ...
+[Replay] Baseline records written to /Users/solomonalor/Documents/ChatBot/baseline. Score them with: python3 ../evals/check.py …
 [Replay] 4/4 matched the capture.
 ```
+Then score the baseline:
+```bash
+cd /Users/solomonalor/Documents/ChatBot && python3 evals/check.py baseline --json baseline/scores.json
+```
+This prints one line per question (`PASS`/`FAIL`, score, fabrication count), the hard checks each answer failed, and the mean. `baseline/scores.json` has the details. `baseline/` holds real telemetry and production answers, so it's gitignored like `fixtures/`.
 
 **How replay works:**
 - With `FIXTURES=1` (which the script sets), `generateLLMPlan` returns the captured plan, and the OpenSearch and Wazuh clients return the captured responses.
 - A request that doesn't exactly match the recording fails loudly (`Fixture miss …`) instead of calling anything live.
-- The report stage isn't replayed. With no model on the Mac it produces the "model unavailable" notice, and `report=fallback_model_unavailable` is expected. The captured report text is kept in each fixture under `result.report` for reference.
+- **No model is called.** The script replaces `LLM_API_URL` with an unreachable address, even if `backend/.env` points at the live model, so the replayed report is the "model unavailable" notice and `report=fallback_model_unavailable` is expected. `--allow-model` turns this off; don't use it without an approved model endpoint.
+- **What the baseline scores:** each record in `baseline/` is the fixture (captured evidence and the answer production gave, under `result.report`) plus the replay verdict under `replay`. A record whose replay `DIVERGED` still scores, but the divergence means today's code no longer builds the same queries; report it.
+- **Synthetic cases are refused.** Replay rejects any file marked `synthetic` (the checker's invented test cases in `evals/synthetic/`), so they can never end up in a baseline.
 - To use replay through the app instead, start the backend with `FIXTURES=1`. Only the four fixture questions will work; any other question fails the run with "no fixture for the question".
 
 ---
@@ -309,9 +324,16 @@ These disappear when the window closes.
 
 **`Cannot find module 'better-sqlite3'` or `was compiled against a different Node.js version`.** `node_modules` wasn't copied, or the `node` on your PATH differs from the one the live backend uses. Check `node --version` against the live service's Node. If internet access is available, `npm ci` in `C:\soc-capture\backend` is the alternative.
 
-**Every question shows `planner=fallback_rules` and `model_generated=false`.** The model endpoint wasn't reachable from this machine. The fixtures still capture OpenSearch and Wazuh faithfully, but not the model's plan. Note it and bring them back anyway.
+**Every question shows `planner=fallback_rules` and `model_generated=false`.** The model endpoint wasn't reachable from this machine, or it hung and the time limits stopped waiting (F-03 is fixed: every model call now gives up instead of hanging). The fixtures still capture OpenSearch and Wazuh faithfully, but neither the model's plan nor its answer, so they can't serve as the baseline. Bring them back anyway, and if the model comes back, re-run as below.
 
-**Every question ends `status=timeout`.** The model server accepts connections but never answers (F-03). Bring back the fixtures and the step 4 output. The recorded calls show exactly where each run stopped.
+**Re-running one question.** Put the question in a text file and capture into a sub-folder, so the existing fixtures and manifest aren't overwritten:
+```powershell
+Set-Content -Path .\rerun.txt -Value 'what are the top alerts this week'
+node scripts\captureFixtures.js --questions-file .\rerun.txt --out .\fixtures\rerun
+```
+Then move the new `.json` up into `.\fixtures\`, replacing the old file for that question, and bring back both manifests (`fixtures\manifest.json` and `fixtures\rerun\manifest.json`).
+
+**A question ends `status=timeout`.** The whole run took longer than 10 minutes. Bring back the fixtures and the step 4 output: the recorded calls show exactly where the run stopped.
 
 ---
 
